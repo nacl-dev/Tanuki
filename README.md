@@ -135,8 +135,8 @@ Tanuki/
 |---------|----------|--------|
 | **v0.1** | Filesystem scan, thumbnails, basic gallery | ✅ Done |
 | **v0.2** | Booru-style tag search, filtering, sort options, ratings | ✅ Done |
-| **v0.3** | Video player, manga/comic reader | 🔜 Next |
-| **v0.4** | Auto-tagging via SauceNAO / IQDB | 📋 Planned |
+| **v0.3** | Video player, manga/comic reader | ✅ Done |
+| **v0.4** | Auto-tagging via SauceNAO / IQDB | 🔜 Next |
 | **v0.5** | Perceptual hash duplicate detection | 📋 Planned |
 | **v0.6** | Multi-user authentication | 📋 Planned |
 | **v1.0** | Stable release, community plugins | 📋 Planned |

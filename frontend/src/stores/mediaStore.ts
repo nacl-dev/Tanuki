@@ -70,9 +70,13 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
+  async function saveProgress(id: string, progress: number, total: number) {
+    await mediaApi.update(id, { read_progress: progress, read_total: total })
+  }
+
   return {
     items, total, loading, error, filters,
     totalPages, currentPage,
-    fetchList, toggleFavorite, setRating, setFilter, nextPage, prevPage,
+    fetchList, toggleFavorite, setRating, setFilter, nextPage, prevPage, saveProgress,
   }
 })
