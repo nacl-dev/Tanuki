@@ -1,0 +1,36 @@
+# tanuki.example.yaml – Main Tanuki application config
+# Copy to /app/config/tanuki.yaml
+#
+# Most values can be overridden by environment variables (see .env.example).
+
+server:
+  port: 8080
+  log_level: info      # debug | info | warn | error
+  secret_key: "change-me-in-production"
+
+database:
+  url: "postgresql://tanuki:secret@db:5432/tanuki"
+  max_open_conns: 25
+  max_idle_conns: 5
+
+redis:
+  url: "redis://cache:6379"
+
+paths:
+  media:      /media
+  thumbnails: /thumbnails
+  downloads:  /downloads
+
+scanner:
+  interval: 300   # seconds between automatic scans
+  extensions:
+    video: [".mp4", ".mkv", ".webm", ".avi", ".mov"]
+    image: [".jpg", ".jpeg", ".png", ".webp", ".gif"]
+    manga: [".zip", ".cbz"]
+    comic: [".cbr", ".rar"]
+
+downloader:
+  max_concurrent: 3
+  rate_limit_delay: 1000   # ms between requests to the same host
+  gallery_dl_config: /app/config/gallery-dl.conf
+  ytdlp_config:      /app/config/yt-dlp.conf

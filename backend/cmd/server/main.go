@@ -1,0 +1,82 @@
+// Command server is the Tanuki HTTP API server + static frontend.
+package main
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/nacl-dev/tanuki/internal/api"
+	"github.com/nacl-dev/tanuki/internal/config"
+	"github.com/nacl-dev/tanuki/internal/database"
+	"go.uber.org/zap"
+)
+
+func main() {
+	// ── Logger ────────────────────────────────────────────────────────────────
+	log, _ := zap.NewProduction()
+	defer log.Sync() //nolint:errcheck
+
+	// ── Config ────────────────────────────────────────────────────────────────
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("load config", zap.Error(err))
+	}
+	if cfg.SecretKey == "change-me" {
+		log.Warn("SECRET_KEY is not set – using insecure default")
+	}
+
+	// ── Database ──────────────────────────────────────────────────────────────
+	db, err := database.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal("connect database", zap.Error(err))
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		log.Fatal("run migrations", zap.Error(err))
+	}
+	log.Info("database ready")
+
+	// ── HTTP server ───────────────────────────────────────────────────────────
+	staticDir := os.Getenv("STATIC_DIR")
+	if staticDir == "" {
+		staticDir = "/app/static"
+	}
+
+	router := api.Router(db, staticDir)
+
+	srv := &http.Server{
+		Addr:         cfg.ServerAddr(),
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// ── Graceful shutdown ─────────────────────────────────────────────────────
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		log.Info("server listening", zap.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("listen", zap.Error(err))
+		}
+	}()
+
+	<-quit
+	log.Info("shutting down…")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error("graceful shutdown failed", zap.Error(err))
+	}
+
+	log.Info("server stopped")
+}

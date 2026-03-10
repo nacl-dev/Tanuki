@@ -1,0 +1,111 @@
+version: "3.9"
+
+services:
+  # ─── API Server + Frontend ───────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      target: app
+    container_name: tanuki-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
+      - MEDIA_PATH=/media
+      - THUMBNAILS_PATH=/thumbnails
+      - DOWNLOADS_PATH=/downloads
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PORT=8080
+      - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+    volumes:
+      - ./media:/media:ro
+      - thumbnails:/thumbnails
+      - downloads:/downloads
+      - config:/app/config
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  # ─── Background Worker ────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: tanuki-worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
+      - MEDIA_PATH=/media
+      - THUMBNAILS_PATH=/thumbnails
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./media:/media:ro
+      - thumbnails:/thumbnails
+      - config:/app/config
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  # ─── Download Manager Daemon ─────────────────────────────────────────────────
+  downloader:
+    build:
+      context: .
+      target: downloader
+    container_name: tanuki-downloader
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
+      - DOWNLOADS_PATH=/downloads
+      - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
+      - RATE_LIMIT_DELAY=${RATE_LIMIT_DELAY:-1000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - downloads:/downloads
+      - config:/app/config
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  # ─── PostgreSQL 16 ───────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: tanuki-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-tanuki}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secret}
+      - POSTGRES_DB=${POSTGRES_DB:-tanuki}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tanuki}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Redis 7 ─────────────────────────────────────────────────────────────────
+  cache:
+    image: redis:7-alpine
+    container_name: tanuki-cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  thumbnails:
+  downloads:
+  config:
+  redisdata:
