@@ -32,6 +32,9 @@ export interface MediaListParams {
   q?: string
   favorite?: boolean
   tag?: string
+  tags?: string
+  sort?: string
+  min_rating?: number
 }
 
 export interface ApiResponse<T> {

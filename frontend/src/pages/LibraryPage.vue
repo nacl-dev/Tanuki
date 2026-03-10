@@ -23,12 +23,39 @@
         />
         Favorites only
       </label>
+
+      <h4>Min Rating</h4>
+      <div class="rating-filter">
+        <span
+          v-for="star in 5"
+          :key="star"
+          class="rating-star"
+          :class="{ active: (store.filters.min_rating ?? 0) >= star }"
+          @click="setMinRating(star)"
+          title="Minimum rating"
+        >★</span>
+        <button
+          v-if="store.filters.min_rating"
+          class="clear-rating"
+          @click="store.setFilter('min_rating', undefined)"
+        >✕</button>
+      </div>
     </aside>
 
     <!-- Gallery -->
     <section class="gallery-section">
       <div class="gallery-header">
-        <span class="gallery-count">{{ store.total }} items</span>
+        <SearchBar @search="onSearch" />
+        <div class="gallery-controls">
+          <span class="gallery-count">{{ store.total }} items</span>
+          <select
+            class="sort-select"
+            :value="store.filters.sort"
+            @change="store.setFilter('sort', ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="s in sortOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+          </select>
+        </div>
       </div>
       <MediaGrid :items="store.items" :loading="store.loading" />
 
@@ -52,10 +79,13 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/mediaStore'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
+import SearchBar from '@/components/Search/SearchBar.vue'
 
 const store = useMediaStore()
+const route = useRoute()
 
 const types = [
   { value: '',          label: 'All'        },
@@ -66,7 +96,36 @@ const types = [
   { value: 'doujinshi', label: '📗 Doujin'  },
 ]
 
-onMounted(() => store.fetchList())
+const sortOptions = [
+  { value: 'newest', label: '🕒 Newest'   },
+  { value: 'oldest', label: '🕰️ Oldest'   },
+  { value: 'title',  label: '🔤 Title'    },
+  { value: 'rating', label: '⭐ Rating'   },
+  { value: 'size',   label: '📦 Size'     },
+  { value: 'views',  label: '👁️ Views'    },
+]
+
+function onSearch(q: string) {
+  store.setFilter('q', q)
+}
+
+function setMinRating(star: number) {
+  // Clicking the same star again clears the filter.
+  if (store.filters.min_rating === star) {
+    store.setFilter('min_rating', undefined)
+  } else {
+    store.setFilter('min_rating', star)
+  }
+}
+
+onMounted(() => {
+  const tagParam = route.query.tag
+  if (tagParam && typeof tagParam === 'string' && tagParam.trim() !== '') {
+    store.setFilter('tag', tagParam.trim())
+  } else {
+    store.fetchList()
+  }
+})
 </script>
 
 <style scoped>
@@ -103,15 +162,57 @@ onMounted(() => store.fetchList())
 
 .filter-option:hover { color: var(--text-primary); }
 
+.rating-filter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rating-star {
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-muted);
+  transition: color 0.1s;
+}
+
+.rating-star.active { color: var(--accent, #f59e0b); }
+.rating-star:hover { color: var(--accent, #f59e0b); }
+
+.clear-rating {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.clear-rating:hover { color: var(--text-primary); }
+
 .gallery-section { flex: 1; display: flex; flex-direction: column; gap: 16px; }
 
 .gallery-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gallery-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .gallery-count { font-size: 13px; color: var(--text-muted); }
+
+.sort-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
 
 .pagination {
   display: flex;
