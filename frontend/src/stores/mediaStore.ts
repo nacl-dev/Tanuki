@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { mediaApi, type Media, type MediaListParams } from '@/api/mediaApi'
 
 export const useMediaStore = defineStore('media', () => {
@@ -15,6 +15,9 @@ export const useMediaStore = defineStore('media', () => {
     q: '',
     favorite: undefined,
   })
+
+  const totalPages = computed(() => Math.max(1, Math.ceil(total.value / (filters.limit ?? 50))))
+  const currentPage = computed(() => filters.page ?? 1)
 
   async function fetchList() {
     loading.value = true
@@ -50,5 +53,23 @@ export const useMediaStore = defineStore('media', () => {
     fetchList()
   }
 
-  return { items, total, loading, error, filters, fetchList, toggleFavorite, setRating, setFilter }
+  function nextPage() {
+    if ((filters.page ?? 1) < totalPages.value) {
+      filters.page = (filters.page ?? 1) + 1
+      fetchList()
+    }
+  }
+
+  function prevPage() {
+    if ((filters.page ?? 1) > 1) {
+      filters.page = (filters.page ?? 1) - 1
+      fetchList()
+    }
+  }
+
+  return {
+    items, total, loading, error, filters,
+    totalPages, currentPage,
+    fetchList, toggleFavorite, setRating, setFilter, nextPage, prevPage,
+  }
 })

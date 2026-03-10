@@ -18,17 +18,18 @@
       <div class="detail-preview">
         <video
           v-if="media.type === 'video'"
-          :src="`/api/media/${media.id}/stream`"
+          :src="`/api/media/${media.id}/file`"
           controls
           class="media-video"
         />
         <img
-          v-else-if="media.thumbnail_url"
-          :src="media.thumbnail_url"
+          v-else-if="!imgError"
+          :src="`/api/media/${media.id}/file`"
           :alt="media.title"
           class="media-image"
+          @error="onImgError"
         />
-        <div v-else class="media-placeholder">{{ media.type }}</div>
+        <div v-else class="media-placeholder">{{ typeIcon(media.type) }}</div>
       </div>
 
       <!-- Meta -->
@@ -61,6 +62,8 @@
             <tr><td>Language</td><td>{{ media.language || '—' }}</td></tr>
             <tr><td>Views</td><td>{{ media.view_count }}</td></tr>
             <tr><td>Size</td><td>{{ formatBytes(media.file_size) }}</td></tr>
+            <tr><td>SHA-256</td><td class="meta-checksum">{{ media.checksum || '—' }}</td></tr>
+            <tr><td>Added</td><td>{{ new Date(media.created_at).toLocaleDateString() }}</td></tr>
           </table>
         </div>
 
@@ -86,6 +89,7 @@ const route = useRoute()
 const router = useRouter()
 const media = ref<Media | null>(null)
 const loading = ref(true)
+const imgError = ref(false)
 
 onMounted(async () => {
   try {
@@ -106,6 +110,17 @@ async function setRating(r: number) {
   if (!media.value) return
   const res = await mediaApi.update(media.value.id, { rating: r })
   media.value = res.data
+}
+
+function onImgError() {
+  imgError.value = true
+}
+
+function typeIcon(type: string): string {
+  const icons: Record<string, string> = {
+    video: '🎬', image: '🖼️', manga: '📖', comic: '📕', doujinshi: '📗',
+  }
+  return icons[type] ?? '📄'
 }
 
 function formatBytes(b: number): string {
@@ -159,6 +174,7 @@ function formatBytes(b: number): string {
 .meta-table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .meta-table td { padding: 4px 0; }
 .meta-table td:first-child { color: var(--text-muted); width: 60px; }
+.meta-checksum { font-family: monospace; font-size: 11px; word-break: break-all; }
 
 .source-link { color: var(--accent); font-size: 13px; }
 .fav-active { color: var(--danger); border-color: var(--danger); }

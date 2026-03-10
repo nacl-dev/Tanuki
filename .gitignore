@@ -34,8 +34,8 @@ frontend/.env.production
 logs/
 
 # Generated / runtime
-thumbnails/
-downloads/
+/thumbnails/
+/downloads/
 *.pid
 
 # Secrets

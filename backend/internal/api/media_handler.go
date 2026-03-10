@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nacl-dev/tanuki/internal/database"
@@ -40,37 +41,38 @@ func (h *MediaHandler) List(c *gin.Context) {
 
 	offset := (q.Page - 1) * q.Limit
 
-	sqlQuery := `
-		SELECT m.* FROM media m
-		WHERE m.deleted_at IS NULL
-	`
+	// Build a shared WHERE clause so that the count and the data query use the
+	// same filters.
+	whereClause := ` WHERE m.deleted_at IS NULL`
 	args := []interface{}{}
 	argIdx := 1
 
 	if q.Type != "" {
-		sqlQuery += ` AND m.type = $` + itoa(argIdx)
+		whereClause += ` AND m.type = $` + itoa(argIdx)
 		args = append(args, q.Type)
 		argIdx++
 	}
 	if q.Q != "" {
-		sqlQuery += ` AND m.title ILIKE $` + itoa(argIdx)
+		whereClause += ` AND m.title ILIKE $` + itoa(argIdx)
 		args = append(args, "%"+q.Q+"%")
 		argIdx++
 	}
 	if q.Favorite != nil {
-		sqlQuery += ` AND m.favorite = $` + itoa(argIdx)
+		whereClause += ` AND m.favorite = $` + itoa(argIdx)
 		args = append(args, *q.Favorite)
 		argIdx++
 	}
 
+	// Count query applies the same filters.
 	var total int
-	countQuery := `SELECT COUNT(*) FROM media m WHERE m.deleted_at IS NULL`
-	if err := h.db.QueryRow(countQuery).Scan(&total); err != nil {
+	countQuery := `SELECT COUNT(*) FROM media m` + whereClause
+	if err := h.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		respondError(c, http.StatusInternalServerError, "count media: "+err.Error())
 		return
 	}
 
-	sqlQuery += ` ORDER BY m.created_at DESC LIMIT $` + itoa(argIdx) + ` OFFSET $` + itoa(argIdx+1)
+	sqlQuery := `SELECT m.* FROM media m` + whereClause +
+		` ORDER BY m.created_at DESC LIMIT $` + itoa(argIdx) + ` OFFSET $` + itoa(argIdx+1)
 	args = append(args, q.Limit, offset)
 
 	var items []models.Media
@@ -92,6 +94,9 @@ func (h *MediaHandler) Get(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "media not found")
 		return
 	}
+
+	// Increment view count asynchronously; errors are non-fatal.
+	h.db.Exec(`UPDATE media SET view_count = view_count + 1 WHERE id = $1`, id) //nolint:errcheck
 
 	// Load associated tags.
 	if err := h.db.Select(&item.Tags, `
@@ -153,3 +158,49 @@ func (h *MediaHandler) Delete(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// ServeFile streams the original media file.
+// GET /api/media/:id/file
+func (h *MediaHandler) ServeFile(c *gin.Context) {
+	id := c.Param("id")
+
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		respondError(c, http.StatusNotFound, "media not found")
+		return
+	}
+
+	if _, err := os.Stat(item.FilePath); os.IsNotExist(err) {
+		respondError(c, http.StatusNotFound, "file not found on disk")
+		return
+	}
+
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.File(item.FilePath)
+}
+
+// ServeThumbnail serves the thumbnail image for a media item.
+// GET /api/media/:id/thumbnail
+func (h *MediaHandler) ServeThumbnail(c *gin.Context) {
+	id := c.Param("id")
+
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		respondError(c, http.StatusNotFound, "media not found")
+		return
+	}
+
+	if item.ThumbnailPath == "" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	if _, err := os.Stat(item.ThumbnailPath); os.IsNotExist(err) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.File(item.ThumbnailPath)
+}
+

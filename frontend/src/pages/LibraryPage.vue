@@ -31,6 +31,21 @@
         <span class="gallery-count">{{ store.total }} items</span>
       </div>
       <MediaGrid :items="store.items" :loading="store.loading" />
+
+      <!-- Pagination controls -->
+      <div v-if="store.totalPages > 1" class="pagination">
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="store.currentPage <= 1"
+          @click="store.prevPage()"
+        >← Previous</button>
+        <span class="pagination-info">Page {{ store.currentPage }} of {{ store.totalPages }}</span>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="store.currentPage >= store.totalPages"
+          @click="store.nextPage()"
+        >Next →</button>
+      </div>
     </section>
   </div>
 </template>
@@ -97,4 +112,14 @@ onMounted(() => store.fetchList())
 }
 
 .gallery-count { font-size: 13px; color: var(--text-muted); }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.pagination-info { font-size: 13px; color: var(--text-muted); }
 </style>

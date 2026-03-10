@@ -31,6 +31,9 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	r.GET("/api/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.1.0"})
+	})
 
 	// ─── API routes ───────────────────────────────────────────────────────────
 	api := r.Group("/api")
@@ -43,6 +46,8 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 			media.GET("/:id", mh.Get)
 			media.PATCH("/:id", mh.Update)
 			media.DELETE("/:id", mh.Delete)
+			media.GET("/:id/file", mh.ServeFile)
+			media.GET("/:id/thumbnail", mh.ServeThumbnail)
 		}
 
 		// Tags

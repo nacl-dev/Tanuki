@@ -2,12 +2,13 @@
   <RouterLink :to="`/media/${media.id}`" class="media-card">
     <div class="media-card__thumb">
       <img
-        v-if="media.thumbnail_url"
-        :src="media.thumbnail_url"
+        v-if="!thumbError"
+        :src="`/api/media/${media.id}/thumbnail`"
         :alt="media.title"
         loading="lazy"
+        @error="onThumbError"
       />
-      <div v-else class="media-card__placeholder">
+      <div v-if="thumbError" class="media-card__placeholder">
         <span>{{ typeIcon }}</span>
       </div>
 
@@ -30,13 +31,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Media } from '@/api/mediaApi'
 import TagBadge from '@/components/Tags/TagBadge.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 
 const props = defineProps<{ media: Media }>()
 const store = useMediaStore()
+const thumbError = ref(false)
+
+function onThumbError() {
+  thumbError.value = true
+}
 
 const typeIcon = computed(() => {
   const icons: Record<string, string> = {
