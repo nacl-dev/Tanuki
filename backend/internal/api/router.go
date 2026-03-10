@@ -48,6 +48,8 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 			media.DELETE("/:id", mh.Delete)
 			media.GET("/:id/file", mh.ServeFile)
 			media.GET("/:id/thumbnail", mh.ServeThumbnail)
+			media.GET("/:id/pages", mh.ListPages)
+			media.GET("/:id/pages/:page", mh.ServePage)
 		}
 
 		// Tags

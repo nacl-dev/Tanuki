@@ -1,8 +1,16 @@
 package api
 
 import (
+	"archive/zip"
+	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -158,11 +166,13 @@ func (h *MediaHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var body struct {
-		Title     *string `json:"title"`
-		Rating    *int    `json:"rating"`
-		Favorite  *bool   `json:"favorite"`
-		Language  *string `json:"language"`
-		SourceURL *string `json:"source_url"`
+		Title        *string `json:"title"`
+		Rating       *int    `json:"rating"`
+		Favorite     *bool   `json:"favorite"`
+		Language     *string `json:"language"`
+		SourceURL    *string `json:"source_url"`
+		ReadProgress *int    `json:"read_progress"`
+		ReadTotal    *int    `json:"read_total"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
@@ -171,14 +181,17 @@ func (h *MediaHandler) Update(c *gin.Context) {
 
 	_, err := h.db.Exec(`
 		UPDATE media SET
-			title      = COALESCE($2, title),
-			rating     = COALESCE($3, rating),
-			favorite   = COALESCE($4, favorite),
-			language   = COALESCE($5, language),
-			source_url = COALESCE($6, source_url),
-			updated_at = NOW()
+			title         = COALESCE($2, title),
+			rating        = COALESCE($3, rating),
+			favorite      = COALESCE($4, favorite),
+			language      = COALESCE($5, language),
+			source_url    = COALESCE($6, source_url),
+			read_progress = COALESCE($7, read_progress),
+			read_total    = COALESCE($8, read_total),
+			updated_at    = NOW()
 		WHERE id = $1 AND deleted_at IS NULL
-	`, id, body.Title, body.Rating, body.Favorite, body.Language, body.SourceURL)
+	`, id, body.Title, body.Rating, body.Favorite, body.Language, body.SourceURL,
+		body.ReadProgress, body.ReadTotal)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "update media: "+err.Error())
 		return
@@ -255,3 +268,203 @@ func splitTags(s string) []string {
 	return parts
 }
 
+// imageExtensions is the set of file extensions considered images inside archives.
+var imageExtensions = map[string]struct{}{
+	".jpg": {}, ".jpeg": {}, ".png": {}, ".webp": {}, ".gif": {},
+}
+
+// isImageFile returns true when the filename has an image extension.
+func isImageFile(name string) bool {
+	_, ok := imageExtensions[strings.ToLower(filepath.Ext(name))]
+	return ok
+}
+
+// PageInfo describes a single page inside an archive.
+type PageInfo struct {
+	Index    int    `json:"index"`
+	Filename string `json:"filename"`
+}
+
+// listZipImages returns image filenames from a ZIP/CBZ archive, sorted alphabetically.
+func listZipImages(path string) ([]string, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	var names []string
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		if isImageFile(f.Name) {
+			names = append(names, f.Name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// listCBRImages lists image filenames inside a CBR/RAR archive using unrar.
+// The file path comes from the database and is not user-controlled.
+// exec.Command passes arguments directly to execve (no shell), so shell
+// metacharacters in the path are not interpreted.
+func listCBRImages(path string) ([]string, error) {
+	out, err := exec.Command("unrar", "lb", "--", path).Output()
+	if err != nil {
+		return nil, fmt.Errorf("unrar lb: %w", err)
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && isImageFile(line) && !strings.HasPrefix(line, "-") {
+			names = append(names, line)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// ListPages returns the list of image pages inside an archive.
+// GET /api/media/:id/pages
+func (h *MediaHandler) ListPages(c *gin.Context) {
+	id := c.Param("id")
+
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		respondError(c, http.StatusNotFound, "media not found")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(item.FilePath))
+	var names []string
+	var err error
+
+	switch ext {
+	case ".zip", ".cbz":
+		names, err = listZipImages(item.FilePath)
+	case ".cbr":
+		names, err = listCBRImages(item.FilePath)
+	default:
+		respondError(c, http.StatusBadRequest, "media is not an archive type")
+		return
+	}
+
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "list pages: "+err.Error())
+		return
+	}
+
+	pages := make([]PageInfo, len(names))
+	for i, n := range names {
+		pages[i] = PageInfo{Index: i, Filename: filepath.Base(n)}
+	}
+
+	respondOK(c, gin.H{
+		"total_pages": len(pages),
+		"pages":       pages,
+	}, nil)
+}
+
+// ServePage streams a single page image from an archive.
+// GET /api/media/:id/pages/:page
+func (h *MediaHandler) ServePage(c *gin.Context) {
+	id := c.Param("id")
+	pageStr := c.Param("page")
+
+	pageIdx, err := strconv.Atoi(pageStr)
+	if err != nil || pageIdx < 0 {
+		respondError(c, http.StatusBadRequest, "invalid page index")
+		return
+	}
+
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		respondError(c, http.StatusNotFound, "media not found")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(item.FilePath))
+	c.Header("Cache-Control", "public, max-age=86400")
+
+	switch ext {
+	case ".zip", ".cbz":
+		if err := serveZipPage(c, item.FilePath, pageIdx); err != nil {
+			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
+		}
+	case ".cbr":
+		if err := serveCBRPage(c, item.FilePath, pageIdx); err != nil {
+			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
+		}
+	default:
+		respondError(c, http.StatusBadRequest, "media is not an archive type")
+	}
+}
+
+// serveZipPage extracts and streams a single page from a ZIP/CBZ archive.
+func serveZipPage(c *gin.Context, path string, pageIdx int) error {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	var images []*zip.File
+	for _, f := range r.File {
+		if !f.FileInfo().IsDir() && isImageFile(f.Name) {
+			images = append(images, f)
+		}
+	}
+	sort.Slice(images, func(i, j int) bool { return images[i].Name < images[j].Name })
+
+	if pageIdx >= len(images) {
+		c.Status(http.StatusNotFound)
+		return nil
+	}
+
+	f := images[pageIdx]
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.Name)))
+	if ct == "" {
+		ct = "image/jpeg"
+	}
+	c.Header("Content-Type", ct)
+	c.Status(http.StatusOK)
+	_, err = io.Copy(c.Writer, rc)
+	return err
+}
+
+// serveCBRPage extracts and streams a single page from a CBR/RAR archive using unrar.
+func serveCBRPage(c *gin.Context, path string, pageIdx int) error {
+	names, err := listCBRImages(path)
+	if err != nil {
+		return err
+	}
+	if pageIdx >= len(names) {
+		c.Status(http.StatusNotFound)
+		return nil
+	}
+
+	target := names[pageIdx]
+	// Pass "--" before filename arguments so unrar cannot misinterpret
+	// archive-embedded filenames as command-line flags.
+	cmd := exec.Command("unrar", "p", "-inul", "--", path, target)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("unrar p: %w", err)
+	}
+
+	ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(target)))
+	if ct == "" {
+		ct = "image/jpeg"
+	}
+	c.Header("Content-Type", ct)
+	c.Data(http.StatusOK, ct, out)
+	return nil
+}

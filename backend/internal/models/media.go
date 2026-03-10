@@ -30,6 +30,8 @@ type Media struct {
 	Language      string     `db:"language"       json:"language"`
 	SourceURL     string     `db:"source_url"     json:"source_url"`
 	ThumbnailPath string     `db:"thumbnail_path" json:"thumbnail_path"`
+	ReadProgress  int        `db:"read_progress"  json:"read_progress"`
+	ReadTotal     int        `db:"read_total"     json:"read_total"`
 	CreatedAt     time.Time  `db:"created_at"     json:"created_at"`
 	UpdatedAt     time.Time  `db:"updated_at"     json:"updated_at"`
 	DeletedAt     *time.Time `db:"deleted_at"     json:"deleted_at,omitempty"`
