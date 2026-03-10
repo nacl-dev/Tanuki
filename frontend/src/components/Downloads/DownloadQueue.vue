@@ -43,10 +43,18 @@ const filters = [
   { value: 'failed',      label: 'Failed'      },
 ]
 
+const sortedJobs = computed(() =>
+  [...store.jobs].sort((a, b) => {
+    const aTime = new Date(a.created_at).getTime()
+    const bTime = new Date(b.created_at).getTime()
+    return bTime - aTime
+  })
+)
+
 const filtered = computed(() =>
   activeFilter.value === 'all'
-    ? store.jobs
-    : store.jobs.filter((j) => j.status === activeFilter.value)
+    ? sortedJobs.value
+    : sortedJobs.value.filter((j) => j.status === activeFilter.value)
 )
 
 function setFilter(v: string) {
@@ -57,7 +65,7 @@ onMounted(() => { store.fetchJobs() })
 
 // Poll active downloads every 3 seconds
 let interval: ReturnType<typeof setInterval>
-onMounted(() => { interval = setInterval(() => store.fetchJobs(), 3000) })
+onMounted(() => { interval = setInterval(() => store.fetchJobs(undefined, { silent: true }), 3000) })
 onUnmounted(() => clearInterval(interval))
 </script>
 

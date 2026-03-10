@@ -1,6 +1,6 @@
 <template>
   <div class="plugins-page">
-    <div class="page-header">
+    <div class="page-header" :class="{ 'page-header--embedded': embedded }">
       <h2 class="page-title">Plugins</h2>
       <button class="btn btn-primary" :disabled="store.loading" @click="store.scanPlugins()">
         🔄 Scan for Plugins
@@ -73,6 +73,10 @@ import { onMounted } from 'vue'
 import { usePluginStore } from '@/stores/pluginStore'
 import type { Plugin } from '@/api/pluginApi'
 
+withDefaults(defineProps<{ embedded?: boolean }>(), {
+  embedded: false,
+})
+
 const store = usePluginStore()
 
 onMounted(() => {
@@ -97,6 +101,10 @@ function confirmDelete(plugin: Plugin) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.page-header--embedded .page-title {
+  font-size: 18px;
 }
 
 .page-title {

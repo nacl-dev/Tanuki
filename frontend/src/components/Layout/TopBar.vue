@@ -1,7 +1,7 @@
 <template>
   <header class="topbar">
     <div class="topbar-search">
-      <SearchBar @search="onSearch" />
+      <SearchBar />
     </div>
     <div class="topbar-actions">
       <button class="btn btn-secondary" :disabled="tagging" @click="triggerAutoTag">
@@ -35,10 +35,6 @@ const authStore = useAuthStore()
 const router = useRouter()
 const scanning = ref(false)
 const tagging = ref(false)
-
-function onSearch(q: string) {
-  mediaStore.setFilter('q', q)
-}
 
 async function triggerScan() {
   if (scanning.value) return

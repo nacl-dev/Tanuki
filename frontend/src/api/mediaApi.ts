@@ -72,6 +72,12 @@ export interface MediaListParams {
   min_rating?: number
 }
 
+export interface SearchSuggestion {
+  type: 'title' | 'tag'
+  value: string
+  label: string
+}
+
 export interface ApiResponse<T> {
   data: T
   error?: string
@@ -104,6 +110,9 @@ export const mediaApi = {
 
   getPages: (id: string) =>
     client.get<ApiResponse<PagesResponse>>(`/media/${id}/pages`).then((r) => r.data),
+
+  suggestions: (q: string) =>
+    client.get<ApiResponse<SearchSuggestion[]>>('/media/suggestions', { params: { q } }).then((r) => r.data),
 }
 
 function withToken(pathname: string, version?: string): string {

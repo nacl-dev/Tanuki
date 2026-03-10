@@ -1,6 +1,6 @@
 <template>
   <div class="duplicates-page">
-    <div class="page-header">
+    <div class="page-header" :class="{ 'page-header--embedded': embedded }">
       <h2 class="page-title">🔍 Duplicate Detection</h2>
       <button class="btn btn-primary" :disabled="store.loading" @click="store.fetchGroups()">
         {{ store.loading ? '⏳ Scanning…' : '🔄 Refresh' }}
@@ -38,6 +38,10 @@ import { onMounted } from 'vue'
 import { useDedupStore } from '@/stores/dedupStore'
 import DuplicateGroup from '@/components/Duplicates/DuplicateGroup.vue'
 
+withDefaults(defineProps<{ embedded?: boolean }>(), {
+  embedded: false,
+})
+
 const store = useDedupStore()
 
 onMounted(() => {
@@ -60,6 +64,10 @@ async function onResolved(keepId: string, deleteIds: string[], mergeTags: boolea
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.page-header--embedded .page-title {
+  font-size: 18px;
 }
 
 .page-title { font-size: 22px; font-weight: 700; }

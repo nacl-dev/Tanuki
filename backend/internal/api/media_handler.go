@@ -165,6 +165,59 @@ func (h *MediaHandler) List(c *gin.Context) {
 	respondOK(c, items, &Meta{Page: q.Page, Total: total})
 }
 
+// Suggestions returns lightweight search suggestions for titles.
+// GET /api/media/suggestions?q=blue
+func (h *MediaHandler) Suggestions(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		respondOK(c, []gin.H{}, nil)
+		return
+	}
+
+	type suggestion struct {
+		Type  string `db:"type" json:"type"`
+		Value string `db:"value" json:"value"`
+		Label string `db:"label" json:"label"`
+	}
+
+	var suggestions []suggestion
+	if err := h.db.Select(&suggestions, `
+		SELECT *
+		FROM (
+			SELECT
+				'title' AS type,
+				m.title AS value,
+				m.title AS label,
+				0 AS rank
+			FROM media m
+			WHERE m.deleted_at IS NULL
+				AND m.title <> ''
+				AND m.title ILIKE $1
+			GROUP BY m.title
+
+			UNION ALL
+
+			SELECT
+				'title' AS type,
+				m.title AS value,
+				m.title AS label,
+				1 AS rank
+			FROM media m
+			WHERE m.deleted_at IS NULL
+				AND m.title <> ''
+				AND m.title ILIKE $2
+			GROUP BY m.title
+		) s
+		ORDER BY rank ASC, label ASC
+		LIMIT 12
+	`, q+"%", "%"+q+"%"); err != nil {
+		respondError(c, http.StatusInternalServerError, "suggest media: "+err.Error())
+		return
+	}
+
+	respondOK(c, suggestions, nil)
+}
+
 // Get returns a single media item by its UUID.
 // GET /api/media/:id
 func (h *MediaHandler) Get(c *gin.Context) {

@@ -1,39 +1,202 @@
 <template>
-  <div class="search-bar">
-    <span class="search-icon">🔍</span>
-    <input
-      v-model="query"
-      type="text"
-      placeholder="Search by title or tag…"
-      class="search-input"
-      @input="onInput"
-      @keydown.enter="emit('search', query)"
-    />
-    <button v-if="query" class="clear-btn" @click="clear">✕</button>
+  <div ref="root" class="search-shell">
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <button
+        v-for="tag in activeTags"
+        :key="tag"
+        class="active-tag-chip"
+        type="button"
+        @click="removeTag(tag)"
+      >
+        #{{ tag }}
+        <span class="active-tag-chip__close">✕</span>
+      </button>
+      <input
+        v-model="query"
+        type="text"
+        placeholder="Search by title or tag…"
+        class="search-input"
+        @focus="showSuggestions = suggestions.length > 0"
+        @input="onInput"
+        @keydown.enter.prevent="onEnter"
+        @keydown.down.prevent="moveSelection(1)"
+        @keydown.up.prevent="moveSelection(-1)"
+        @keydown.esc="showSuggestions = false"
+      />
+      <button v-if="query || activeTags.length" class="clear-btn" @click="clearAll">✕</button>
+    </div>
+
+    <div v-if="showSuggestions && suggestions.length" class="search-suggestions">
+      <button
+        v-for="(suggestion, index) in suggestions"
+        :key="`${suggestion.type}-${suggestion.value}`"
+        type="button"
+        :class="['suggestion-item', { 'suggestion-item--active': index === activeIndex }]"
+        @mousedown.prevent="applySuggestion(suggestion)"
+      >
+        <span class="suggestion-type">{{ suggestion.type === 'tag' ? 'Tag' : 'Title' }}</span>
+        <span class="suggestion-label">{{ suggestion.label }}</span>
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
+import { useRouter } from 'vue-router'
+import { useMediaStore } from '@/stores/mediaStore'
+import { tagApi } from '@/api/tagApi'
+import { mediaApi, type SearchSuggestion } from '@/api/mediaApi'
 
-const emit = defineEmits<{ (e: 'search', q: string): void }>()
+const mediaStore = useMediaStore()
+const router = useRouter()
 
-const query = ref('')
+const root = ref<HTMLElement | null>(null)
+const query = ref(mediaStore.filters.q ?? '')
+const suggestions = ref<SearchSuggestion[]>([])
+const activeIndex = ref(-1)
+const showSuggestions = ref(false)
 
-const debouncedEmit = useDebounceFn((q: string) => emit('search', q), 300)
+const activeTags = computed(() => {
+  const values = [
+    ...(mediaStore.filters.tags ? mediaStore.filters.tags.split(',') : []),
+    mediaStore.filters.tag ?? '',
+  ]
+  return values.map((item) => item.trim()).filter(Boolean).filter((item, index, arr) => arr.indexOf(item) === index)
+})
+
+watch(() => mediaStore.filters.q, (value) => {
+  query.value = value ?? ''
+})
+
+watch(() => [mediaStore.filters.tag, mediaStore.filters.tags], () => {
+  if (!activeTags.value.length && !query.value.trim()) {
+    showSuggestions.value = false
+  }
+})
+
+const debouncedSearch = useDebounceFn((value: string) => {
+  mediaStore.setFilter('q', value)
+}, 250)
+
+const debouncedSuggest = useDebounceFn(async (value: string) => {
+  const term = value.trim()
+  if (!term) {
+    suggestions.value = []
+    activeIndex.value = -1
+    showSuggestions.value = false
+    return
+  }
+
+  const [tagsRes, titlesRes] = await Promise.all([
+    tagApi.search(term),
+    mediaApi.suggestions(term),
+  ])
+
+  const tagSuggestions: SearchSuggestion[] = (tagsRes.data ?? []).map((tag) => ({
+    type: 'tag',
+    value: tag.name,
+    label: tag.name,
+  }))
+
+  const titleSuggestions = titlesRes.data ?? []
+  const merged = [...tagSuggestions, ...titleSuggestions]
+  const seen = new Set<string>()
+  suggestions.value = merged.filter((item) => {
+    const key = `${item.type}:${item.value.toLowerCase()}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 8)
+  activeIndex.value = suggestions.value.length ? 0 : -1
+  showSuggestions.value = suggestions.value.length > 0
+}, 200)
 
 function onInput() {
-  debouncedEmit(query.value)
+  debouncedSearch(query.value)
+  void debouncedSuggest(query.value)
 }
 
-function clear() {
-  query.value = ''
-  emit('search', '')
+function onEnter() {
+  if (showSuggestions.value && activeIndex.value >= 0 && suggestions.value[activeIndex.value]) {
+    applySuggestion(suggestions.value[activeIndex.value])
+    return
+  }
+  mediaStore.setFilter('q', query.value.trim())
+  showSuggestions.value = false
 }
+
+function moveSelection(direction: number) {
+  if (!suggestions.value.length) return
+  showSuggestions.value = true
+  activeIndex.value = (activeIndex.value + direction + suggestions.value.length) % suggestions.value.length
+}
+
+function applySuggestion(suggestion: SearchSuggestion) {
+  if (suggestion.type === 'tag') {
+    query.value = ''
+    mediaStore.filters.q = ''
+    addTag(suggestion.value)
+  } else {
+    mediaStore.filters.tag = ''
+    mediaStore.filters.tags = ''
+    query.value = suggestion.value
+    mediaStore.setFilter('q', suggestion.value)
+    void router.replace({ path: '/', query: {} })
+  }
+  suggestions.value = []
+  activeIndex.value = -1
+  showSuggestions.value = false
+}
+
+function addTag(tag: string) {
+  const next = [...activeTags.value, tag].filter((item, index, arr) => arr.indexOf(item) === index)
+  mediaStore.filters.tag = ''
+  mediaStore.setFilter('tags', next.join(','))
+  void router.replace({ path: '/', query: { tags: next.join(',') } })
+}
+
+function removeTag(tag: string) {
+  const next = activeTags.value.filter((item) => item !== tag)
+  mediaStore.filters.tag = ''
+  mediaStore.setFilter('tags', next.join(','))
+  void router.replace({ path: '/', query: next.length ? { tags: next.join(',') } : {} })
+}
+
+function clearAll() {
+  query.value = ''
+  mediaStore.filters.q = ''
+  mediaStore.filters.tag = ''
+  mediaStore.filters.tags = ''
+  mediaStore.fetchList()
+  suggestions.value = []
+  showSuggestions.value = false
+  void router.replace({ path: '/', query: {} })
+}
+
+function onDocumentClick(event: MouseEvent) {
+  if (!root.value) return
+  if (!root.value.contains(event.target as Node)) {
+    showSuggestions.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+})
 </script>
 
 <style scoped>
+.search-shell {
+  position: relative;
+}
+
 .search-bar {
   display: flex;
   align-items: center;
@@ -45,6 +208,24 @@ function clear() {
 }
 
 .search-icon { color: var(--text-muted); }
+
+.active-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent-dimmed);
+  color: var(--accent);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.active-tag-chip__close {
+  font-size: 10px;
+}
 
 .search-input {
   flex: 1;
@@ -65,4 +246,57 @@ function clear() {
   font-size: 12px;
 }
 .clear-btn:hover { color: var(--text-primary); }
+
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestion-item:hover,
+.suggestion-item--active {
+  background: var(--bg-hover);
+}
+
+.suggestion-type {
+  width: 40px;
+  flex-shrink: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.suggestion-label {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

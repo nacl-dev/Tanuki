@@ -61,7 +61,7 @@
         <div v-else-if="isArchive && pages" class="archive-preview">
           <img
             v-if="!imgError"
-            :src="thumbnailAssetUrl"
+            :src="archivePreviewUrl"
             :alt="media.title"
             class="media-image archive-thumb"
             @error="onImgError"
@@ -83,8 +83,10 @@
             <div class="stars">
               <span
                 v-for="i in 5" :key="i"
-                :class="['star', { 'star--on': i <= (media.rating ?? 0) }]"
+                :class="['star', { 'star--on': i <= (hoveredMediaRating ?? media.rating ?? 0) }]"
                 @click="setRating(i)"
+                @mouseenter="hoveredMediaRating = i"
+                @mouseleave="hoveredMediaRating = null"
               >★</span>
             </div>
             <button
@@ -105,32 +107,9 @@
           </div>
         </div>
 
-        <div class="meta-section edit-section">
+        <div class="meta-section">
           <div class="edit-header">
-            <span class="meta-label">Collections</span>
-          </div>
-          <div v-if="loadingCollections" class="meta-summary-empty">Loading collections…</div>
-          <div v-else-if="!collections.length" class="meta-summary-empty">No collections yet.</div>
-          <div v-else class="collection-memberships">
-            <label
-              v-for="collection in collections"
-              :key="collection.id"
-              class="collection-checkbox"
-            >
-              <input
-                type="checkbox"
-                :checked="activeCollectionIds.has(collection.id)"
-                :disabled="savingCollectionId === collection.id"
-                @change="toggleCollection(collection.id, ($event.target as HTMLInputElement).checked)"
-              />
-              <span>{{ collection.name }}</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="meta-section edit-section">
-          <div class="edit-header">
-            <span class="meta-label">Metadata</span>
+            <span class="meta-label">Details</span>
             <div class="edit-actions">
               <button
                 v-if="!editingMetadata"
@@ -165,16 +144,55 @@
             <div class="meta-summary-row">
               <span class="meta-summary-label">Source</span>
               <span class="meta-summary-value meta-summary-link">
-                <a v-if="media.source_url" :href="media.source_url" target="_blank" rel="noopener">{{ media.source_url }}</a>
+                <a v-if="media.source_url" :href="media.source_url" target="_blank" rel="noopener">Source</a>
                 <template v-else>—</template>
               </span>
             </div>
             <div class="meta-summary-row meta-summary-row--stacked">
-              <span class="meta-summary-label">Tags</span>
+              <span class="meta-summary-label">Collections</span>
               <div class="meta-summary-tags">
-                <TagBadge v-for="tag in media.tags" :key="`edit-${tag.id}`" :tag="tag" />
-                <span v-if="!media.tags?.length" class="meta-summary-empty">No tags</span>
+                <span
+                  v-for="collection in activeCollections"
+                  :key="collection.id"
+                  class="meta-collection-chip"
+                >
+                  {{ collection.name }}
+                </span>
+                <span v-if="loadingCollections" class="meta-summary-empty">Loading collections…</span>
+                <span v-else-if="!activeCollections.length" class="meta-summary-empty">No collections</span>
               </div>
+            </div>
+            <div class="meta-summary-row">
+              <span class="meta-summary-label">Type</span>
+              <span class="meta-summary-value">{{ media.type }}</span>
+            </div>
+            <div class="meta-summary-row">
+              <span class="meta-summary-label">Views</span>
+              <span class="meta-summary-value">{{ media.view_count }}</span>
+            </div>
+            <div class="meta-summary-row">
+              <span class="meta-summary-label">Size</span>
+              <span class="meta-summary-value">{{ formatBytes(media.file_size) }}</span>
+            </div>
+            <div v-if="isArchive && pages" class="meta-summary-row">
+              <span class="meta-summary-label">Pages</span>
+              <span class="meta-summary-value">{{ pages.total_pages }}</span>
+            </div>
+            <div v-if="isArchive && media.read_progress > 0" class="meta-summary-row">
+              <span class="meta-summary-label">Progress</span>
+              <span class="meta-summary-value">Page {{ media.read_progress + 1 }} / {{ media.read_total || pages?.total_pages }}</span>
+            </div>
+            <div v-if="media.auto_tag_status === 'completed'" class="meta-summary-row">
+              <span class="meta-summary-label">Auto-tag</span>
+              <span class="meta-summary-value">{{ media.auto_tag_source }} ({{ media.auto_tag_similarity?.toFixed(1) }}%)</span>
+            </div>
+            <div class="meta-summary-row">
+              <span class="meta-summary-label">SHA-256</span>
+              <span class="meta-summary-value meta-checksum">{{ media.checksum || '—' }}</span>
+            </div>
+            <div class="meta-summary-row">
+              <span class="meta-summary-label">Added</span>
+              <span class="meta-summary-value">{{ new Date(media.created_at).toLocaleDateString() }}</span>
             </div>
           </div>
           <div v-else class="edit-form">
@@ -244,47 +262,37 @@
                 placeholder="comma, separated, tags"
               />
             </label>
+            <div class="edit-field">
+              <span>Collections</span>
+              <div v-if="loadingCollections" class="meta-summary-empty">Loading collections…</div>
+              <div v-else-if="!collections.length" class="meta-summary-empty">No collections yet.</div>
+              <div v-else class="collection-memberships">
+                <label
+                  v-for="collection in collections"
+                  :key="collection.id"
+                  class="collection-checkbox"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="activeCollectionIds.has(collection.id)"
+                    :disabled="savingCollectionId === collection.id"
+                    @change="toggleCollection(collection.id, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>{{ collection.name }}</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
         <!-- Duplicate warning -->
         <div v-if="duplicates.length > 0" class="meta-section">
           <span class="meta-label">Duplicates</span>
-          <RouterLink :to="`/duplicates`" class="dup-warning">
+          <RouterLink :to="{ name: 'settings', query: { section: 'duplicates' } }" class="dup-warning">
             ⚠️ {{ duplicates.length }} duplicate{{ duplicates.length !== 1 ? 's' : '' }} found
           </RouterLink>
         </div>
 
-        <!-- Details -->
-        <div class="meta-section">
-          <span class="meta-label">Details</span>
-          <table class="meta-table">
-            <tr><td>Type</td><td>{{ media.type }}</td></tr>
-            <tr><td>Language</td><td>{{ media.language || '—' }}</td></tr>
-            <tr><td>Views</td><td>{{ media.view_count }}</td></tr>
-            <tr><td>Size</td><td>{{ formatBytes(media.file_size) }}</td></tr>
-            <tr v-if="isArchive && pages">
-              <td>Pages</td>
-              <td>{{ pages.total_pages }}</td>
-            </tr>
-            <tr v-if="isArchive && media.read_progress > 0">
-              <td>Progress</td>
-              <td>Page {{ media.read_progress + 1 }} / {{ media.read_total || pages?.total_pages }}</td>
-            </tr>
-            <tr v-if="media.auto_tag_status === 'completed'">
-              <td>Auto-tag</td>
-              <td>{{ media.auto_tag_source }} ({{ media.auto_tag_similarity?.toFixed(1) }}%)</td>
-            </tr>
-            <tr><td>SHA-256</td><td class="meta-checksum">{{ media.checksum || '—' }}</td></tr>
-            <tr><td>Added</td><td>{{ new Date(media.created_at).toLocaleDateString() }}</td></tr>
-          </table>
-        </div>
-
-        <div v-if="media.source_url" class="meta-section">
-          <a :href="media.source_url" target="_blank" rel="noopener" class="source-link">
-            🔗 Source
-          </a>
-        </div>
       </aside>
     </div>
   </div>
@@ -319,7 +327,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { mediaApi, mediaAssetUrl, type Media, type PagesResponse } from '@/api/mediaApi'
+import { mediaApi, mediaAssetUrl, mediaPageUrl, type Media, type PagesResponse } from '@/api/mediaApi'
 import { autotagApi, type AutoTagResult, type SuggestedTag } from '@/api/autotagApi'
 import { collectionApi, type Collection } from '@/api/collectionApi'
 import { dedupApi, type DuplicateItem } from '@/api/dedupApi'
@@ -354,6 +362,7 @@ const loadingCollections = ref(false)
 const savingCollectionId = ref('')
 const showDeleteDialog = ref(false)
 const thumbnailUrl = ref('')
+const hoveredMediaRating = ref<number | null>(null)
 const editForm = ref({
   title: '',
   created_at: '',
@@ -383,12 +392,21 @@ const thumbnailAssetUrl = computed(() => {
   if (!media.value?.thumbnail_path) return undefined
   return mediaAssetUrl(media.value.id, 'thumbnail', media.value.updated_at)
 })
+const archivePreviewUrl = computed(() => {
+  if (!media.value || !isArchive.value) return undefined
+  const firstPage = pages.value?.pages?.[0]
+  if (firstPage) {
+    return mediaPageUrl(media.value.id, firstPage.index)
+  }
+  return thumbnailAssetUrl.value
+})
 const thumbnailUrlPreview = computed(() => {
   const url = thumbnailUrl.value.trim()
   if (!url) return ''
   return url
 })
 const activeCollectionIds = computed(() => new Set(collections.value.filter((item) => item.item_count > 0).map((item) => item.id)))
+const activeCollections = computed(() => collections.value.filter((item) => item.item_count > 0))
 
 function goToPrev() {
   if (!hasPrev.value) return
@@ -694,10 +712,15 @@ function syncEditForm(item: Media) {
 .detail-preview {
   flex: 1;
   min-width: 0;
-  background: var(--bg-surface);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: min(78vh, 960px);
+  max-height: min(78vh, 960px);
 }
 
 .media-image { width: 100%; height: auto; display: block; }
@@ -706,11 +729,24 @@ function syncEditForm(item: Media) {
 .archive-preview {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
 }
 
-.archive-thumb { opacity: 0.7; }
+.archive-thumb {
+  width: auto;
+  max-width: 100%;
+  height: 100%;
+  max-height: calc(min(78vh, 960px) - 48px);
+  object-fit: contain;
+  display: block;
+  border-radius: 10px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
 
 .read-btn {
   position: absolute;
@@ -853,6 +889,16 @@ function syncEditForm(item: Media) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.meta-collection-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  color: var(--text-primary);
 }
 .meta-summary-empty {
   font-size: 12px;

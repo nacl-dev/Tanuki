@@ -16,13 +16,6 @@
         >
           Favorites only
         </button>
-        <select
-          class="sort-select"
-          :value="store.filters.sort"
-          @change="store.setFilter('sort', ($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="s in sortOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
-        </select>
       </div>
 
       <div class="rating-filter">
@@ -41,6 +34,15 @@
           class="clear-rating"
           @click="store.setFilter('min_rating', undefined)"
         >✕</button>
+        <div class="sort-select-wrap">
+          <select
+            class="sort-select"
+            :value="store.filters.sort"
+            @change="store.setFilter('sort', ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="s in sortOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+          </select>
+        </div>
       </div>
     </aside>
 
@@ -62,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/mediaStore'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
@@ -97,13 +99,43 @@ function setMinRating(star: number) {
 }
 
 onMounted(() => {
+  const tagsParam = route.query.tags
   const tagParam = route.query.tag
-  if (tagParam && typeof tagParam === 'string' && tagParam.trim() !== '') {
+  if (typeof tagsParam === 'string' && tagsParam.trim() !== '') {
+    store.filters.q = ''
+    store.filters.tag = ''
+    store.setFilter('tags', tagsParam.trim())
+  } else if (tagParam && typeof tagParam === 'string' && tagParam.trim() !== '') {
+    store.filters.q = ''
+    store.filters.tags = ''
     store.setFilter('tag', tagParam.trim())
   } else {
+    store.filters.tag = ''
+    store.filters.tags = ''
     store.fetchList()
   }
 })
+
+watch(
+  () => [route.query.tag, route.query.tags],
+  ([tagParam, tagsParam]) => {
+    if (typeof tagsParam === 'string' && tagsParam.trim() !== '') {
+      store.filters.q = ''
+      store.filters.tag = ''
+      store.setFilter('tags', tagsParam.trim())
+      return
+    }
+    if (typeof tagParam === 'string' && tagParam.trim() !== '') {
+      store.filters.q = ''
+      store.setFilter('tag', tagParam.trim())
+      return
+    }
+    if (store.filters.tag || store.filters.tags) {
+      store.filters.tags = ''
+      store.setFilter('tag', '')
+    }
+  },
+)
 </script>
 
 <style scoped>
@@ -169,12 +201,14 @@ onMounted(() => {
   border: 1px solid var(--border);
   background: var(--bg-surface);
   color: var(--text-primary);
-  padding: 8px 36px 8px 12px;
+  padding: 8px 38px 8px 18px;
   border-radius: 999px;
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  min-width: 116px;
+  min-width: 124px;
+  text-align: center;
+  text-align-last: center;
 }
 
 .sort-select:hover {
@@ -184,8 +218,13 @@ onMounted(() => {
 .rating-filter {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 10px;
   flex-shrink: 0;
+}
+
+.sort-select-wrap {
+  display: flex;
+  align-items: center;
 }
 
 .rating-star {

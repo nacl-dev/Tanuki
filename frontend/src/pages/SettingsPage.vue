@@ -51,14 +51,43 @@
         </p>
       </div>
     </div>
+
+    <div id="duplicates" class="card settings-panel">
+      <DuplicatesPage embedded />
+    </div>
+
+    <div id="plugins" class="card settings-panel">
+      <PluginsPage embedded />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { nextTick, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { libraryApi } from '@/api/libraryApi'
+import DuplicatesPage from '@/pages/DuplicatesPage.vue'
+import PluginsPage from '@/pages/PluginsPage.vue'
+
+const route = useRoute()
 
 async function scanNow() {
   await libraryApi.scan()
+}
+
+onMounted(async () => {
+  await scrollToSection(route.query.section)
+})
+
+watch(() => route.query.section, (section) => {
+  void scrollToSection(section)
+})
+
+async function scrollToSection(section: unknown) {
+  await nextTick()
+  if (typeof section !== 'string' || !section) return
+  const target = document.getElementById(section)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 </script>
 
@@ -73,6 +102,12 @@ async function scanNow() {
 }
 
 .settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;

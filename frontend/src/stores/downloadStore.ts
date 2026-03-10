@@ -8,8 +8,11 @@ export const useDownloadStore = defineStore('download', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function fetchJobs(status?: string) {
-    loading.value = true
+  async function fetchJobs(status?: string, options?: { silent?: boolean }) {
+    const silent = options?.silent === true
+    if (!silent) {
+      loading.value = true
+    }
     error.value = null
     try {
       const res = await downloadApi.list(status)
@@ -17,7 +20,9 @@ export const useDownloadStore = defineStore('download', () => {
     } catch (e: any) {
       error.value = e.message
     } finally {
-      loading.value = false
+      if (!silent) {
+        loading.value = false
+      }
     }
   }
 

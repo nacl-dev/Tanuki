@@ -60,6 +60,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			media := protected.Group("/media")
 			{
 				media.GET("", mh.List)
+				media.GET("/suggestions", mh.Suggestions)
 				media.GET("/:id", mh.Get)
 				media.PATCH("/:id", mh.Update)
 				media.DELETE("/:id", mh.Delete)

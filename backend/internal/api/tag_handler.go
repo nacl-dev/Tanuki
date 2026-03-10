@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -57,7 +58,7 @@ func (h *TagHandler) List(c *gin.Context) {
 // Search provides autocomplete suggestions for tag names.
 // GET /api/tags/search?q=blon
 func (h *TagHandler) Search(c *gin.Context) {
-	q := c.Query("q")
+	q := strings.TrimSpace(c.Query("q"))
 	if q == "" {
 		respondOK(c, []models.Tag{}, nil)
 		return
@@ -66,11 +67,14 @@ func (h *TagHandler) Search(c *gin.Context) {
 	var tags []models.Tag
 	if err := h.db.Select(&tags, `
 	`+tagUsageSelect+`
-		WHERE t.name ILIKE $1
+		WHERE t.name ILIKE $1 OR t.name ILIKE $2
 		GROUP BY t.id, t.name, t.category
-		ORDER BY usage_count DESC, t.name ASC
+		ORDER BY
+			CASE WHEN t.name ILIKE $1 THEN 0 ELSE 1 END,
+			usage_count DESC,
+			t.name ASC
 		LIMIT 20
-	`, q+"%"); err != nil {
+	`, q+"%", "%"+q+"%"); err != nil {
 		respondError(c, http.StatusInternalServerError, "search tags: "+err.Error())
 		return
 	}

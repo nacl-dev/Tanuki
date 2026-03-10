@@ -15,6 +15,7 @@ export const useMediaStore = defineStore('media', () => {
     q: '',
     favorite: undefined,
     tag: '',
+    tags: '',
     sort: 'newest',
     min_rating: undefined,
   })

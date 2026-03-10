@@ -53,13 +53,13 @@ const router = createRouter({
     {
       path: '/duplicates',
       name: 'duplicates',
-      component: () => import('@/pages/DuplicatesPage.vue'),
+      redirect: { name: 'settings', query: { section: 'duplicates' } },
       meta: { requiresAuth: true },
     },
     {
       path: '/plugins',
       name: 'plugins',
-      component: () => import('@/pages/PluginsPage.vue'),
+      redirect: { name: 'settings', query: { section: 'plugins' } },
       meta: { requiresAuth: true },
     },
     {
