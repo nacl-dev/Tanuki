@@ -1,8 +1,8 @@
-// Package downloader manages concurrent download jobs.
 package downloader
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -13,11 +13,11 @@ import (
 
 // Manager processes queued download jobs up to a configurable concurrency limit.
 type Manager struct {
-	db          *database.DB
-	engines     []Engine
-	maxWorkers  int
-	rateDelay   time.Duration
-	log         *zap.Logger
+	db           *database.DB
+	engines      []Engine
+	maxWorkers   int
+	rateDelay    time.Duration
+	log          *zap.Logger
 	downloadsDir string
 }
 
@@ -52,6 +52,16 @@ func (m *Manager) Run(ctx context.Context) {
 			}
 
 			for _, job := range jobs {
+				job.TargetDirectory = m.resolveTargetDirectory(job.TargetDirectory)
+				claimed, err := m.claimJob(ctx, job)
+				if err != nil {
+					m.log.Error("manager: claim job", zap.String("id", job.ID), zap.Error(err))
+					continue
+				}
+				if !claimed {
+					continue
+				}
+
 				sem <- struct{}{}
 				go func(j models.DownloadJob) {
 					defer func() { <-sem }()
@@ -73,12 +83,38 @@ func (m *Manager) fetchQueued(ctx context.Context) ([]models.DownloadJob, error)
 	return jobs, err
 }
 
+func (m *Manager) claimJob(ctx context.Context, job models.DownloadJob) (bool, error) {
+	var claimedID string
+	err := m.db.GetContext(ctx, &claimedID, `
+		UPDATE download_jobs AS dj
+		SET status = 'downloading', error_message = '', updated_at = NOW()
+		WHERE dj.id = $1
+		  AND dj.status = 'queued'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM download_jobs AS active
+			WHERE active.id <> dj.id
+			  AND active.status IN ('downloading', 'processing')
+			  AND active.url = dj.url
+			  AND active.target_directory = $2
+			  AND active.user_id IS NOT DISTINCT FROM $3
+		  )
+		RETURNING dj.id
+	`, job.ID, job.TargetDirectory, job.UserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	return claimedID != "", nil
+}
+
 func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 	m.log.Info("download: start", zap.String("id", job.ID), zap.String("url", job.URL))
-	m.setStatus(job.ID, models.DownloadStatusDownloading, "")
 
-	engine := m.selectEngine(job.URL)
-	if engine == nil {
+	engines := m.matchingEngines(job.URL)
+	if len(engines) == 0 {
 		m.log.Warn("download: no engine found", zap.String("url", job.URL))
 		m.setStatus(job.ID, models.DownloadStatusFailed, "no suitable download engine found")
 		return
@@ -87,25 +123,43 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 	// Apply per-source rate limit delay.
 	time.Sleep(m.rateDelay)
 
-	if err := engine.Download(ctx, &job); err != nil {
-		m.log.Error("download: failed", zap.String("id", job.ID), zap.Error(err))
-		m.setStatus(job.ID, models.DownloadStatusFailed, err.Error())
-		m.db.Exec(`UPDATE download_jobs SET retry_count = retry_count + 1 WHERE id = $1`, job.ID) //nolint:errcheck
+	var lastErr error
+	for _, engine := range engines {
+		if err := engine.Download(ctx, &job); err != nil {
+			lastErr = err
+			if isUnsupportedURLError(err) {
+				m.log.Warn("download: engine unsupported", zap.String("id", job.ID), zap.Error(err))
+				continue
+			}
+
+			m.log.Error("download: failed", zap.String("id", job.ID), zap.Error(err))
+			m.setStatus(job.ID, models.DownloadStatusFailed, err.Error())
+			m.db.Exec(`UPDATE download_jobs SET retry_count = retry_count + 1 WHERE id = $1`, job.ID) //nolint:errcheck
+			return
+		}
+
+		m.setStatus(job.ID, models.DownloadStatusCompleted, "")
+		m.db.Exec(`UPDATE download_jobs SET completed_at = NOW() WHERE id = $1`, job.ID) //nolint:errcheck
+		m.log.Info("download: completed", zap.String("id", job.ID))
 		return
 	}
 
-	m.setStatus(job.ID, models.DownloadStatusCompleted, "")
-	m.db.Exec(`UPDATE download_jobs SET completed_at = NOW() WHERE id = $1`, job.ID) //nolint:errcheck
-	m.log.Info("download: completed", zap.String("id", job.ID))
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no suitable download engine found")
+	}
+	m.log.Error("download: failed", zap.String("id", job.ID), zap.Error(lastErr))
+	m.setStatus(job.ID, models.DownloadStatusFailed, lastErr.Error())
+	m.db.Exec(`UPDATE download_jobs SET retry_count = retry_count + 1 WHERE id = $1`, job.ID) //nolint:errcheck
 }
 
-func (m *Manager) selectEngine(rawURL string) Engine {
+func (m *Manager) matchingEngines(rawURL string) []Engine {
+	matches := make([]Engine, 0, len(m.engines))
 	for _, e := range m.engines {
 		if e.CanHandle(rawURL) {
-			return e
+			matches = append(matches, e)
 		}
 	}
-	return nil
+	return matches
 }
 
 func (m *Manager) setStatus(id string, status models.DownloadStatus, errMsg string) {
@@ -113,6 +167,16 @@ func (m *Manager) setStatus(id string, status models.DownloadStatus, errMsg stri
 		UPDATE download_jobs SET status = $2, error_message = $3, updated_at = NOW()
 		WHERE id = $1
 	`, id, string(status), errMsg) //nolint:errcheck
+}
+
+func (m *Manager) resolveTargetDirectory(targetDirectory string) string {
+	if targetDirectory != "" {
+		return targetDirectory
+	}
+	if m.downloadsDir != "" {
+		return m.downloadsDir
+	}
+	return "/downloads"
 }
 
 // UpdateProgress writes progress fields to the database.

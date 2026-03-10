@@ -3,7 +3,7 @@
     <div class="media-card__thumb">
       <img
         v-if="!thumbError"
-        :src="`/api/media/${media.id}/thumbnail`"
+        :src="mediaAssetUrl(media.id, 'thumbnail')"
         :alt="media.title"
         loading="lazy"
         @error="onThumbError"
@@ -32,7 +32,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Media } from '@/api/mediaApi'
+import { mediaAssetUrl, type Media } from '@/api/mediaApi'
 import TagBadge from '@/components/Tags/TagBadge.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 

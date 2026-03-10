@@ -112,7 +112,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			}
 
 			// Library
-			lh := &LibraryHandler{db: db}
+			lh := &LibraryHandler{db: db, mediaPath: cfg.MediaPath, log: log}
 			protected.POST("/library/scan", lh.Scan)
 
 			// Duplicates (v0.5)

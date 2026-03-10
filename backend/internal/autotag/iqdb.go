@@ -1,10 +1,13 @@
 package autotag
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
-	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,7 +23,7 @@ type IQDBResult struct {
 	Tags       []string
 }
 
-// iqdbClient queries iqdb.org via its URL-search form.
+// iqdbClient queries iqdb.org via image upload.
 type iqdbClient struct {
 	limiter *ratelimit.Limiter
 	http    *http.Client
@@ -33,15 +36,31 @@ func newIQDBClient(rateInterval time.Duration) *iqdbClient {
 	}
 }
 
-// Search queries IQDB for the given image URL.
-// Returns the best result above the threshold, or nil if none found.
-func (c *iqdbClient) Search(imageURL string, threshold float64) (*IQDBResult, error) {
+// SearchFile uploads the given image file to IQDB.
+func (c *iqdbClient) SearchFile(path string, threshold float64) (*IQDBResult, error) {
 	c.limiter.Wait()
 
-	params := url.Values{}
-	params.Set("url", imageURL)
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
 
-	resp, err := c.http.PostForm("https://iqdb.org/", params) //nolint:noctx
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("iqdb open file: %w", err)
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return nil, fmt.Errorf("iqdb create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, fmt.Errorf("iqdb copy file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("iqdb close writer: %w", err)
+	}
+
+	resp, err := c.http.Post("https://iqdb.org/", writer.FormDataContentType(), payload) //nolint:noctx
 	if err != nil {
 		return nil, fmt.Errorf("iqdb request: %w", err)
 	}
@@ -55,25 +74,19 @@ func (c *iqdbClient) Search(imageURL string, threshold float64) (*IQDBResult, er
 	return parseIQDBResponse(string(body), threshold)
 }
 
-// parseIQDBResponse extracts the best match from IQDB's HTML response using
-// lightweight regex-based parsing (avoids adding an HTML parser dependency).
 func parseIQDBResponse(html string, threshold float64) (*IQDBResult, error) {
-	// IQDB renders matches inside <div class="pages"> sections.
-	// Each best-match section contains a similarity percentage like "95% similarity".
 	simRe := regexp.MustCompile(`(\d+)%\s*similarity`)
-	urlRe  := regexp.MustCompile(`href="(https?://[^"]+)"`)
+	urlRe := regexp.MustCompile(`href="(https?://[^"]+)"`)
 
-	// Skip the "your image" section (first table)
 	rest := html
 	if idx := strings.Index(rest, "Best match"); idx >= 0 {
 		rest = rest[idx:]
 	} else if idx := strings.Index(rest, "best match"); idx >= 0 {
 		rest = rest[idx:]
 	} else {
-		return nil, nil // no matches
+		return nil, nil
 	}
 
-	// Extract similarity
 	simMatches := simRe.FindStringSubmatch(rest)
 	if len(simMatches) < 2 {
 		return nil, nil
@@ -83,7 +96,6 @@ func parseIQDBResponse(html string, threshold float64) (*IQDBResult, error) {
 		return nil, nil
 	}
 
-	// Extract first external URL in the match block
 	urlMatches := urlRe.FindStringSubmatch(rest)
 	sourceURL := ""
 	if len(urlMatches) >= 2 {

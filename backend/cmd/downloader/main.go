@@ -42,6 +42,7 @@ func main() {
 	// (everything else), HTTP as fallback.
 	engines := []dl.Engine{
 		dl.NewYtDlpEngine(configDir+"/yt-dlp.conf", log),
+		dl.NewImageGalleryEngine(log),
 		dl.NewGalleryDLEngine(configDir+"/gallery-dl.conf", log),
 		dl.NewHTTPEngine(log),
 	}

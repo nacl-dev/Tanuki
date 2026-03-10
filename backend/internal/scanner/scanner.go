@@ -1,4 +1,3 @@
-// Package scanner walks the media directory and upserts Media records.
 package scanner
 
 import (
@@ -57,7 +56,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	err := filepath.WalkDir(s.mediaPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			s.log.Warn("scanner: walk error", zap.String("path", path), zap.Error(err))
-			return nil // continue
+			return nil
 		}
 		if d.IsDir() {
 			return nil
@@ -84,7 +83,6 @@ func (s *Scanner) Run(ctx context.Context) error {
 		return fmt.Errorf("walk: %w", err)
 	}
 
-	// Soft-delete records whose files no longer exist.
 	if err := s.removeStale(ctx, seen); err != nil {
 		s.log.Warn("scanner: remove stale failed", zap.Error(err))
 	}
@@ -115,8 +113,11 @@ func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.Medi
 		INSERT INTO media (id, title, type, file_path, file_size, checksum)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (file_path) DO UPDATE SET
+			title      = EXCLUDED.title,
+			type       = EXCLUDED.type,
 			file_size  = EXCLUDED.file_size,
 			checksum   = EXCLUDED.checksum,
+			deleted_at = NULL,
 			updated_at = NOW()
 	`,
 		uuid.NewString(),

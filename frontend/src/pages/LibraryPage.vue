@@ -1,6 +1,5 @@
 <template>
   <div class="library-page">
-    <!-- Filters sidebar -->
     <aside class="filter-sidebar">
       <h4>Type</h4>
       <label v-for="t in types" :key="t.value" class="filter-option">
@@ -25,37 +24,38 @@
       </label>
 
       <h4>Min Rating</h4>
-      <div class="rating-filter">
-        <span
-          v-for="star in 5"
-          :key="star"
-          class="rating-star"
-          :class="{ active: (store.filters.min_rating ?? 0) >= star }"
-          @click="setMinRating(star)"
-          title="Minimum rating"
-        >★</span>
+      <div class="rating-filter-row">
+        <div class="rating-filter">
+          <span
+            v-for="star in 5"
+            :key="star"
+            class="rating-star"
+            :class="{ active: (store.filters.min_rating ?? 0) >= star }"
+            @click="setMinRating(star)"
+            title="Minimum rating"
+          >★</span>
+          <button
+            v-if="store.filters.min_rating"
+            class="clear-rating"
+            @click="store.setFilter('min_rating', undefined)"
+          >✕</button>
+        </div>
         <button
-          v-if="store.filters.min_rating"
-          class="clear-rating"
-          @click="store.setFilter('min_rating', undefined)"
-        >✕</button>
+          class="btn btn-secondary btn-sm autotag-all-btn"
+          :disabled="batchTagging"
+          @click="autoTagAll"
+          title="Auto-tag all untagged items"
+        >
+          {{ batchTagging ? 'Queuing…' : 'Auto-Tag Untagged' }}
+        </button>
       </div>
     </aside>
 
-    <!-- Gallery -->
     <section class="gallery-section">
       <div class="gallery-header">
         <SearchBar @search="onSearch" />
         <div class="gallery-controls">
           <span class="gallery-count">{{ store.total }} items</span>
-          <button
-            class="btn btn-secondary btn-sm autotag-all-btn"
-            :disabled="batchTagging"
-            @click="autoTagAll"
-            title="Auto-tag all untagged items"
-          >
-            {{ batchTagging ? '⏳ Queuing…' : '🏷️ Auto-Tag Untagged' }}
-          </button>
           <select
             class="sort-select"
             :value="store.filters.sort"
@@ -67,19 +67,10 @@
       </div>
       <MediaGrid :items="store.items" :loading="store.loading" />
 
-      <!-- Pagination controls -->
       <div v-if="store.totalPages > 1" class="pagination">
-        <button
-          class="btn btn-ghost btn-sm"
-          :disabled="store.currentPage <= 1"
-          @click="store.prevPage()"
-        >← Previous</button>
+        <button class="btn btn-ghost btn-sm" :disabled="store.currentPage <= 1" @click="store.prevPage()">← Previous</button>
         <span class="pagination-info">Page {{ store.currentPage }} of {{ store.totalPages }}</span>
-        <button
-          class="btn btn-ghost btn-sm"
-          :disabled="store.currentPage >= store.totalPages"
-          @click="store.nextPage()"
-        >Next →</button>
+        <button class="btn btn-ghost btn-sm" :disabled="store.currentPage >= store.totalPages" @click="store.nextPage()">Next →</button>
       </div>
     </section>
   </div>
@@ -103,7 +94,8 @@ async function autoTagAll() {
   batchTagging.value = true
   try {
     const res = await autotagApi.autotagBatch('all_untagged')
-    alert(`🏷️ Queued ${res.data.queued} items for auto-tagging.`)
+    await store.fetchList()
+    alert(`Queued ${res.data.queued} items for auto-tagging.`)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Batch auto-tag failed'
     alert(msg)
@@ -113,21 +105,21 @@ async function autoTagAll() {
 }
 
 const types = [
-  { value: '',          label: 'All'        },
-  { value: 'video',     label: '🎬 Videos'  },
-  { value: 'image',     label: '🖼️ Images'  },
-  { value: 'manga',     label: '📖 Manga'   },
-  { value: 'comic',     label: '📕 Comics'  },
-  { value: 'doujinshi', label: '📗 Doujin'  },
+  { value: '', label: 'All' },
+  { value: 'video', label: '🎬 Videos' },
+  { value: 'image', label: '🖼️ Images' },
+  { value: 'manga', label: '📖 Manga' },
+  { value: 'comic', label: '📕 Comics' },
+  { value: 'doujinshi', label: '📗 Doujin' },
 ]
 
 const sortOptions = [
-  { value: 'newest', label: '🕒 Newest'   },
-  { value: 'oldest', label: '🕰️ Oldest'   },
-  { value: 'title',  label: '🔤 Title'    },
-  { value: 'rating', label: '⭐ Rating'   },
-  { value: 'size',   label: '📦 Size'     },
-  { value: 'views',  label: '👁️ Views'    },
+  { value: 'newest', label: '🕒 Newest' },
+  { value: 'oldest', label: '🕰️ Oldest' },
+  { value: 'title', label: '🔤 Title' },
+  { value: 'rating', label: '⭐ Rating' },
+  { value: 'size', label: '📦 Size' },
+  { value: 'views', label: '👁️ Views' },
 ]
 
 function onSearch(q: string) {
@@ -135,7 +127,6 @@ function onSearch(q: string) {
 }
 
 function setMinRating(star: number) {
-  // Clicking the same star again clears the filter.
   if (store.filters.min_rating === star) {
     store.setFilter('min_rating', undefined)
   } else {
@@ -161,7 +152,7 @@ onMounted(() => {
 }
 
 .filter-sidebar {
-  width: 180px;
+  width: 220px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -186,6 +177,12 @@ onMounted(() => {
 }
 
 .filter-option:hover { color: var(--text-primary); }
+
+.rating-filter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 .rating-filter {
   display: flex;
@@ -229,8 +226,7 @@ onMounted(() => {
 }
 
 .gallery-count { font-size: 13px; color: var(--text-muted); }
-
-.autotag-all-btn { flex-shrink: 0; }
+.autotag-all-btn { width: 100%; justify-content: center; }
 
 .sort-select {
   background: var(--bg-card);

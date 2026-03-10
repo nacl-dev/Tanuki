@@ -17,8 +17,14 @@ type ScheduleHandler struct {
 // List returns all download schedules.
 // GET /api/schedules
 func (h *ScheduleHandler) List(c *gin.Context) {
+	userID := c.GetString("userID")
+
 	var schedules []models.DownloadSchedule
-	if err := h.db.Select(&schedules, `SELECT * FROM download_schedules ORDER BY created_at DESC`); err != nil {
+	if err := h.db.Select(&schedules, `
+		SELECT * FROM download_schedules
+		WHERE user_id = $1 OR user_id IS NULL
+		ORDER BY created_at DESC
+	`, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "query schedules: "+err.Error())
 		return
 	}
@@ -44,15 +50,18 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 	id := uuid.NewString()
 	if _, err := h.db.Exec(`
 		INSERT INTO download_schedules
-			(id, name, url_pattern, source_type, cron_expression, enabled, target_directory)
-		VALUES ($1, $2, $3, $4, $5, true, $6)
-	`, id, body.Name, body.URLPattern, body.SourceType, body.CronExpression, body.TargetDirectory); err != nil {
+			(id, user_id, name, url_pattern, source_type, cron_expression, enabled, target_directory)
+		VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, body.CronExpression, body.TargetDirectory); err != nil {
 		respondError(c, http.StatusInternalServerError, "create schedule: "+err.Error())
 		return
 	}
 
 	var sched models.DownloadSchedule
-	if err := h.db.Get(&sched, `SELECT * FROM download_schedules WHERE id = $1`, id); err != nil {
+	if err := h.db.Get(&sched, `
+		SELECT * FROM download_schedules
+		WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+	`, id, c.GetString("userID")); err != nil {
 		respondError(c, http.StatusInternalServerError, "fetch schedule: "+err.Error())
 		return
 	}
@@ -64,6 +73,7 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 // PATCH /api/schedules/:id
 func (h *ScheduleHandler) Update(c *gin.Context) {
 	id := c.Param("id")
+	userID := c.GetString("userID")
 
 	var body struct {
 		Name           *string `json:"name"`
@@ -81,14 +91,17 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 			cron_expression = COALESCE($3, cron_expression),
 			enabled         = COALESCE($4, enabled),
 			updated_at      = NOW()
-		WHERE id = $1
-	`, id, body.Name, body.CronExpression, body.Enabled); err != nil {
+		WHERE id = $1 AND (user_id = $5 OR user_id IS NULL)
+	`, id, body.Name, body.CronExpression, body.Enabled, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "update schedule: "+err.Error())
 		return
 	}
 
 	var sched models.DownloadSchedule
-	if err := h.db.Get(&sched, `SELECT * FROM download_schedules WHERE id = $1`, id); err != nil {
+	if err := h.db.Get(&sched, `
+		SELECT * FROM download_schedules
+		WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+	`, id, userID); err != nil {
 		respondError(c, http.StatusNotFound, "schedule not found")
 		return
 	}
@@ -100,8 +113,9 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 // DELETE /api/schedules/:id
 func (h *ScheduleHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
+	userID := c.GetString("userID")
 
-	if _, err := h.db.Exec(`DELETE FROM download_schedules WHERE id = $1`, id); err != nil {
+	if _, err := h.db.Exec(`DELETE FROM download_schedules WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "delete schedule: "+err.Error())
 		return
 	}

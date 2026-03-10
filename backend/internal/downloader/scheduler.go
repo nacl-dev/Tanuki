@@ -57,9 +57,9 @@ func (s *Scheduler) add(sched models.DownloadSchedule) error {
 		manager := s.manager
 		_ = manager
 		s.db.Exec(`
-			INSERT INTO download_jobs (id, url, source_type, status, progress, target_directory, retry_count)
-			VALUES (gen_random_uuid(), $1, $2, 'queued', 0, $3, 0)
-		`, sched.URLPattern, sched.SourceType, sched.TargetDirectory) //nolint:errcheck
+			INSERT INTO download_jobs (id, user_id, url, source_type, status, progress, target_directory, retry_count)
+			VALUES (gen_random_uuid(), $1, $2, $3, 'queued', 0, $4, 0)
+		`, sched.UserID, sched.URLPattern, sched.SourceType, sched.TargetDirectory) //nolint:errcheck
 	})
 	return err
 }

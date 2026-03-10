@@ -77,3 +77,20 @@ export const mediaApi = {
   getPages: (id: string) =>
     client.get<ApiResponse<PagesResponse>>(`/media/${id}/pages`).then((r) => r.data),
 }
+
+function withToken(pathname: string): string {
+  const url = new URL(pathname, window.location.origin)
+  const token = localStorage.getItem('tanuki_token')
+  if (token) {
+    url.searchParams.set('token', token)
+  }
+  return url.pathname + url.search
+}
+
+export function mediaAssetUrl(id: string, kind: 'file' | 'thumbnail'): string {
+  return withToken(`/api/media/${id}/${kind}`)
+}
+
+export function mediaPageUrl(id: string, page: number): string {
+  return withToken(`/api/media/${id}/pages/${page}`)
+}

@@ -12,18 +12,23 @@ const (
 	contextRole   = "role"
 )
 
-// AuthRequired returns a Gin middleware that validates a Bearer JWT token from
-// the Authorization header. On success it sets "userID" and "role" in the
-// context. On failure it aborts with 401 Unauthorized.
+// AuthRequired returns a Gin middleware that validates a JWT from either the
+// Authorization header or a token query parameter. On success it sets "userID"
+// and "role" in the context. On failure it aborts with 401 Unauthorized.
 func AuthRequired(secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		tokenStr := ""
 		header := c.GetHeader("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
+		if strings.HasPrefix(header, "Bearer ") {
+			tokenStr = strings.TrimPrefix(header, "Bearer ")
+		} else {
+			tokenStr = c.Query("token")
+		}
+		if tokenStr == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization header required"})
 			return
 		}
 
-		tokenStr := strings.TrimPrefix(header, "Bearer ")
 		claims, err := ValidateToken(tokenStr, secretKey)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})

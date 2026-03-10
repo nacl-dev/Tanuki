@@ -1,12 +1,14 @@
-// Package autotag provides reverse-image-search based auto-tagging via SauceNAO and IQDB.
 package autotag
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
-	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nacl-dev/tanuki/internal/ratelimit"
@@ -14,13 +16,13 @@ import (
 
 // SauceNAOResult holds the relevant fields extracted from a SauceNAO search hit.
 type SauceNAOResult struct {
-	Similarity float64
-	Title      string
-	Artist     string
-	Characters []string
-	Parody     string // series / parody
+	Similarity   float64
+	Title        string
+	Artist       string
+	Characters   []string
+	Parody       string
 	ExternalURLs []string
-	Source     string // raw source string
+	Source       string
 }
 
 // sauceNAOClient calls the SauceNAO JSON API.
@@ -39,20 +41,34 @@ func newSauceNAOClient(apiKey string, rateInterval time.Duration) *sauceNAOClien
 	}
 }
 
-// Search queries SauceNAO for the given image URL.
-// Returns the best result above the similarity threshold, or nil if none found.
-func (c *sauceNAOClient) Search(imageURL string, threshold float64) (*SauceNAOResult, error) {
+// SearchFile uploads a local image file to SauceNAO.
+func (c *sauceNAOClient) SearchFile(path string, threshold float64) (*SauceNAOResult, error) {
 	c.limiter.Wait()
 
-	params := url.Values{}
-	params.Set("output_type", "2") // JSON output
-	params.Set("api_key", c.apiKey)
-	params.Set("url", imageURL)
-	params.Set("numres", "3")
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	_ = writer.WriteField("output_type", "2")
+	_ = writer.WriteField("api_key", c.apiKey)
+	_ = writer.WriteField("numres", "3")
 
-	apiURL := "https://saucenao.com/search.php?" + params.Encode()
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("saucenao open file: %w", err)
+	}
+	defer file.Close()
 
-	resp, err := c.http.Get(apiURL) //nolint:noctx
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return nil, fmt.Errorf("saucenao create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, fmt.Errorf("saucenao copy file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("saucenao close writer: %w", err)
+	}
+
+	resp, err := c.http.Post("https://saucenao.com/search.php", writer.FormDataContentType(), payload) //nolint:noctx
 	if err != nil {
 		return nil, fmt.Errorf("saucenao request: %w", err)
 	}
@@ -65,8 +81,6 @@ func (c *sauceNAOClient) Search(imageURL string, threshold float64) (*SauceNAORe
 
 	return parseSauceNAOResponse(body, threshold)
 }
-
-// ─── SauceNAO response types ──────────────────────────────────────────────────
 
 type sauceNAOResponse struct {
 	Header  sauceNAOHeader   `json:"header"`
@@ -120,8 +134,7 @@ func parseSauceNAOResponse(body []byte, threshold float64) (*SauceNAOResult, err
 		d := r.Data
 		artist := firstNonEmpty(d.Artist, d.Author, d.Creator, d.Member)
 		title := firstNonEmpty(d.Title, d.Source)
-
-		extURLs := append(r.Header.ExtURLs, d.ExtURLs...) //nolint:gocritic
+		extURLs := append(r.Header.ExtURLs, d.ExtURLs...)
 
 		return &SauceNAOResult{
 			Similarity:   sim,
@@ -134,7 +147,7 @@ func parseSauceNAOResponse(body []byte, threshold float64) (*SauceNAOResult, err
 		}, nil
 	}
 
-	return nil, nil // no match above threshold
+	return nil, nil
 }
 
 func firstNonEmpty(vals ...string) string {

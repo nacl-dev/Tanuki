@@ -43,14 +43,14 @@
       <div class="detail-preview">
         <VideoPlayer
           v-if="media.type === 'video'"
-          :src="`/api/media/${media.id}/file`"
-          :poster="media.thumbnail_path ? `/api/media/${media.id}/thumbnail` : undefined"
+          :src="mediaAssetUrl(media.id, 'file')"
+          :poster="media.thumbnail_path ? mediaAssetUrl(media.id, 'thumbnail') : undefined"
           @timeupdate="onVideoTimeUpdate"
           @ended="onVideoEnded"
         />
         <img
           v-else-if="media.type === 'image' && !imgError"
-          :src="`/api/media/${media.id}/file`"
+          :src="mediaAssetUrl(media.id, 'file')"
           :alt="media.title"
           class="media-image"
           @error="onImgError"
@@ -59,7 +59,7 @@
         <div v-else-if="isArchive && pages" class="archive-preview">
           <img
             v-if="!imgError"
-            :src="`/api/media/${media.id}/thumbnail`"
+            :src="mediaAssetUrl(media.id, 'thumbnail')"
             :alt="media.title"
             class="media-image archive-thumb"
             @error="onImgError"
@@ -77,12 +77,21 @@
         <!-- Rating -->
         <div class="meta-section">
           <span class="meta-label">Rating</span>
-          <div class="stars">
-            <span
-              v-for="i in 5" :key="i"
-              :class="['star', { 'star--on': i <= (media.rating ?? 0) }]"
-              @click="setRating(i)"
-            >★</span>
+          <div class="rating-tools">
+            <div class="stars">
+              <span
+                v-for="i in 5" :key="i"
+                :class="['star', { 'star--on': i <= (media.rating ?? 0) }]"
+                @click="setRating(i)"
+              >★</span>
+            </div>
+            <button
+              class="btn btn-secondary btn-sm autotag-btn"
+              :disabled="autoTagging"
+              @click="runAutoTag"
+            >
+              {{ autoTagging ? '⏳ Tagging…' : '🏷️ Auto-Tag' }}
+            </button>
           </div>
         </div>
 
@@ -92,14 +101,6 @@
           <div class="tags-list">
             <TagBadge v-for="tag in media.tags" :key="tag.id" :tag="tag" />
           </div>
-          <!-- Auto-Tag button -->
-          <button
-            class="btn btn-secondary btn-sm autotag-btn"
-            :disabled="autoTagging"
-            @click="runAutoTag"
-          >
-            {{ autoTagging ? '⏳ Tagging…' : '🏷️ Auto-Tag' }}
-          </button>
         </div>
 
         <!-- Duplicate warning -->
@@ -158,7 +159,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { mediaApi, type Media, type PagesResponse } from '@/api/mediaApi'
+import { mediaApi, mediaAssetUrl, type Media, type PagesResponse } from '@/api/mediaApi'
 import { autotagApi, type AutoTagResult, type SuggestedTag } from '@/api/autotagApi'
 import { dedupApi, type DuplicateItem } from '@/api/dedupApi'
 import { useMediaStore } from '@/stores/mediaStore'
@@ -411,6 +412,7 @@ function formatBytes(b: number): string {
 .meta-section { display: flex; flex-direction: column; gap: 8px; }
 .meta-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; }
 
+.rating-tools { display: flex; flex-direction: column; gap: 10px; }
 .stars { display: flex; gap: 4px; }
 .star { font-size: 20px; cursor: pointer; color: var(--border); transition: color 0.1s; }
 .star--on, .star:hover { color: var(--accent); }
@@ -428,7 +430,7 @@ function formatBytes(b: number): string {
 
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.autotag-btn { align-self: flex-start; margin-top: 4px; }
+.autotag-btn { align-self: flex-start; }
 
 .dup-warning {
   display: inline-flex;
@@ -446,3 +448,5 @@ function formatBytes(b: number): string {
 
 .dup-warning:hover { background: rgba(245, 158, 11, 0.1); }
 </style>
+
+

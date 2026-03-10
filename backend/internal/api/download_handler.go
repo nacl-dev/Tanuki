@@ -18,14 +18,23 @@ type DownloadHandler struct {
 // GET /api/downloads?status=queued
 func (h *DownloadHandler) List(c *gin.Context) {
 	status := c.Query("status")
+	userID := c.GetString("userID")
 
 	var jobs []models.DownloadJob
 	var err error
 
 	if status != "" {
-		err = h.db.Select(&jobs, `SELECT * FROM download_jobs WHERE status = $1 ORDER BY created_at DESC`, status)
+		err = h.db.Select(&jobs, `
+			SELECT * FROM download_jobs
+			WHERE status = $1 AND (user_id = $2 OR user_id IS NULL)
+			ORDER BY created_at DESC
+		`, status, userID)
 	} else {
-		err = h.db.Select(&jobs, `SELECT * FROM download_jobs ORDER BY created_at DESC`)
+		err = h.db.Select(&jobs, `
+			SELECT * FROM download_jobs
+			WHERE user_id = $1 OR user_id IS NULL
+			ORDER BY created_at DESC
+		`, userID)
 	}
 
 	if err != nil {
@@ -51,6 +60,7 @@ func (h *DownloadHandler) Create(c *gin.Context) {
 
 	job := models.DownloadJob{
 		ID:              uuid.NewString(),
+		UserID:          stringPtr(c.GetString("userID")),
 		URL:             body.URL,
 		Status:          models.DownloadStatusQueued,
 		TargetDirectory: body.TargetDirectory,
@@ -58,9 +68,9 @@ func (h *DownloadHandler) Create(c *gin.Context) {
 
 	if _, err := h.db.Exec(`
 		INSERT INTO download_jobs
-			(id, url, source_type, status, progress, target_directory, retry_count)
-		VALUES ($1, $2, 'auto', $3, 0, $4, 0)
-	`, job.ID, job.URL, job.Status, job.TargetDirectory); err != nil {
+			(id, user_id, url, source_type, status, progress, target_directory, retry_count)
+		VALUES ($1, $2, $3, 'auto', $4, 0, $5, 0)
+	`, job.ID, job.UserID, job.URL, job.Status, job.TargetDirectory); err != nil {
 		respondError(c, http.StatusInternalServerError, "create job: "+err.Error())
 		return
 	}
@@ -72,6 +82,8 @@ func (h *DownloadHandler) Create(c *gin.Context) {
 // Batch enqueues multiple download jobs at once.
 // POST /api/downloads/batch
 func (h *DownloadHandler) Batch(c *gin.Context) {
+	userID := stringPtr(c.GetString("userID"))
+
 	var body struct {
 		URLs            []string `json:"urls"             binding:"required"`
 		TargetDirectory string   `json:"target_directory" binding:"-"`
@@ -86,9 +98,9 @@ func (h *DownloadHandler) Batch(c *gin.Context) {
 		id := uuid.NewString()
 		if _, err := h.db.Exec(`
 			INSERT INTO download_jobs
-				(id, url, source_type, status, progress, target_directory, retry_count)
-			VALUES ($1, $2, 'auto', 'queued', 0, $3, 0)
-		`, id, rawURL, body.TargetDirectory); err == nil {
+				(id, user_id, url, source_type, status, progress, target_directory, retry_count)
+			VALUES ($1, $2, $3, 'auto', 'queued', 0, $4, 0)
+		`, id, userID, rawURL, body.TargetDirectory); err == nil {
 			created = append(created, id)
 		}
 	}
@@ -100,9 +112,13 @@ func (h *DownloadHandler) Batch(c *gin.Context) {
 // GET /api/downloads/:id
 func (h *DownloadHandler) Get(c *gin.Context) {
 	id := c.Param("id")
+	userID := c.GetString("userID")
 
 	var job models.DownloadJob
-	if err := h.db.Get(&job, `SELECT * FROM download_jobs WHERE id = $1`, id); err != nil {
+	if err := h.db.Get(&job, `
+		SELECT * FROM download_jobs
+		WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+	`, id, userID); err != nil {
 		respondError(c, http.StatusNotFound, "download job not found")
 		return
 	}
@@ -115,6 +131,7 @@ func (h *DownloadHandler) Get(c *gin.Context) {
 // PATCH /api/downloads/:id
 func (h *DownloadHandler) Update(c *gin.Context) {
 	id := c.Param("id")
+	userID := c.GetString("userID")
 
 	var body struct {
 		Action          string `json:"action"           binding:"-"` // pause|resume|cancel|retry
@@ -127,13 +144,13 @@ func (h *DownloadHandler) Update(c *gin.Context) {
 
 	switch body.Action {
 	case "pause":
-		h.db.Exec(`UPDATE download_jobs SET status = 'paused',  updated_at = NOW() WHERE id = $1`, id) //nolint:errcheck
+		h.db.Exec(`UPDATE download_jobs SET status = 'paused',  updated_at = NOW() WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	case "resume":
-		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW() WHERE id = $1`, id) //nolint:errcheck
+		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW() WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	case "cancel":
-		h.db.Exec(`UPDATE download_jobs SET status = 'failed',  updated_at = NOW(), error_message = 'cancelled by user' WHERE id = $1`, id) //nolint:errcheck
+		h.db.Exec(`UPDATE download_jobs SET status = 'failed',  updated_at = NOW(), error_message = 'cancelled by user' WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	case "retry":
-		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW(), error_message = '', retry_count = 0 WHERE id = $1`, id) //nolint:errcheck
+		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW(), error_message = '', retry_count = 0 WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	}
 
 	h.Get(c)
@@ -143,11 +160,19 @@ func (h *DownloadHandler) Update(c *gin.Context) {
 // DELETE /api/downloads/:id
 func (h *DownloadHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
+	userID := c.GetString("userID")
 
-	if _, err := h.db.Exec(`DELETE FROM download_jobs WHERE id = $1`, id); err != nil {
+	if _, err := h.db.Exec(`DELETE FROM download_jobs WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "delete job: "+err.Error())
 		return
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func stringPtr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }

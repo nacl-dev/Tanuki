@@ -7,7 +7,7 @@
     @mousemove="onActivity"
     @mouseenter="onActivity"
     @keydown="onKey"
-    @click.self="togglePlay"
+    @click="onContainerClick"
   >
     <video
       ref="video"
@@ -134,6 +134,10 @@ function togglePlay() {
     controlsHidden.value = false
     if (hideTimer) clearTimeout(hideTimer)
   }
+}
+
+function onContainerClick() {
+  togglePlay()
 }
 
 function toggleMute() {

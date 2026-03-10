@@ -6,12 +6,11 @@
     </div>
 
     <div class="group-items">
-      <!-- Reference item (always shown first) -->
       <div class="dup-item dup-item--reference">
         <div class="dup-thumbnail">
           <img
             v-if="group.reference.thumbnail_path"
-            :src="`/api/media/${group.reference.id}/thumbnail`"
+            :src="mediaAssetUrl(group.reference.id, 'thumbnail')"
             :alt="group.reference.title"
             class="thumb-img"
           />
@@ -33,7 +32,6 @@
         </div>
       </div>
 
-      <!-- Duplicate matches -->
       <div
         v-for="match in group.matches"
         :key="match.id"
@@ -43,7 +41,7 @@
         <div class="dup-thumbnail">
           <img
             v-if="match.thumbnail_path"
-            :src="`/api/media/${match.id}/thumbnail`"
+            :src="mediaAssetUrl(match.id, 'thumbnail')"
             :alt="match.title"
             class="thumb-img"
           />
@@ -84,6 +82,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { mediaAssetUrl } from '@/api/mediaApi'
 import type { DuplicateGroup } from '@/api/dedupApi'
 
 const props = defineProps<{ group: DuplicateGroup }>()
@@ -92,7 +91,6 @@ const emit = defineEmits<{
   (e: 'resolved', keepId: string, deleteIds: string[], mergeTags: boolean): void
 }>()
 
-// Default: keep the reference
 const keepId = ref(props.group.reference.id)
 const mergeTags = ref(true)
 const resolving = ref(false)

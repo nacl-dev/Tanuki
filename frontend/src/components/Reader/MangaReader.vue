@@ -126,7 +126,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import type { PageInfo } from '@/api/mediaApi'
+import { mediaPageUrl, type PageInfo } from '@/api/mediaApi'
 
 const props = defineProps<{
   mediaId: string
@@ -163,7 +163,7 @@ const readingModes: { value: ReadingMode; label: string }[] = [
 ]
 
 function pageUrl(idx: number): string {
-  return `/api/media/${props.mediaId}/pages/${idx}`
+  return mediaPageUrl(props.mediaId, idx)
 }
 
 const leftPage = computed(() => currentPage.value % 2 === 0 ? currentPage.value : currentPage.value - 1)

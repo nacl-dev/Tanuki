@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -53,7 +54,7 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 		"--progress",
 		"--newline",
 	}
-	if e.configPath != "" {
+	if e.hasConfig() {
 		args = append(args, "--config-location", e.configPath)
 	}
 	args = append(args, job.URL)
@@ -94,7 +95,11 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 
 // FetchMetadata uses yt-dlp --dump-json to retrieve video metadata.
 func (e *YtDlpEngine) FetchMetadata(url string) (*SourceMetadata, error) {
-	args := []string{"--dump-json", "--no-playlist", url}
+	args := []string{"--dump-json", "--no-playlist"}
+	if e.hasConfig() {
+		args = append(args, "--config-location", e.configPath)
+	}
+	args = append(args, url)
 
 	out, err := exec.Command("yt-dlp", args...).Output()
 	if err != nil {
@@ -122,4 +127,14 @@ func (e *YtDlpEngine) FetchMetadata(url string) (*SourceMetadata, error) {
 	}
 
 	return meta, nil
+}
+
+func (e *YtDlpEngine) hasConfig() bool {
+	if e.configPath == "" {
+		return false
+	}
+	if _, err := os.Stat(e.configPath); err != nil {
+		return false
+	}
+	return true
 }
