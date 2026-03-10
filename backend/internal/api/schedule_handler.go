@@ -1,0 +1,110 @@
+package api
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/models"
+)
+
+// ScheduleHandler manages recurring download schedules.
+type ScheduleHandler struct {
+	db *database.DB
+}
+
+// List returns all download schedules.
+// GET /api/schedules
+func (h *ScheduleHandler) List(c *gin.Context) {
+	var schedules []models.DownloadSchedule
+	if err := h.db.Select(&schedules, `SELECT * FROM download_schedules ORDER BY created_at DESC`); err != nil {
+		respondError(c, http.StatusInternalServerError, "query schedules: "+err.Error())
+		return
+	}
+
+	respondOK(c, schedules, &Meta{Total: len(schedules)})
+}
+
+// Create adds a new scheduled download.
+// POST /api/schedules
+func (h *ScheduleHandler) Create(c *gin.Context) {
+	var body struct {
+		Name            string `json:"name"             binding:"required"`
+		URLPattern      string `json:"url_pattern"      binding:"required"`
+		SourceType      string `json:"source_type"      binding:"-"`
+		CronExpression  string `json:"cron_expression"  binding:"required"`
+		TargetDirectory string `json:"target_directory" binding:"-"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	id := uuid.NewString()
+	if _, err := h.db.Exec(`
+		INSERT INTO download_schedules
+			(id, name, url_pattern, source_type, cron_expression, enabled, target_directory)
+		VALUES ($1, $2, $3, $4, $5, true, $6)
+	`, id, body.Name, body.URLPattern, body.SourceType, body.CronExpression, body.TargetDirectory); err != nil {
+		respondError(c, http.StatusInternalServerError, "create schedule: "+err.Error())
+		return
+	}
+
+	var sched models.DownloadSchedule
+	if err := h.db.Get(&sched, `SELECT * FROM download_schedules WHERE id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "fetch schedule: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusCreated, envelope{Data: sched})
+}
+
+// Update modifies a schedule.
+// PATCH /api/schedules/:id
+func (h *ScheduleHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+
+	var body struct {
+		Name           *string `json:"name"`
+		CronExpression *string `json:"cron_expression"`
+		Enabled        *bool   `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if _, err := h.db.Exec(`
+		UPDATE download_schedules SET
+			name            = COALESCE($2, name),
+			cron_expression = COALESCE($3, cron_expression),
+			enabled         = COALESCE($4, enabled),
+			updated_at      = NOW()
+		WHERE id = $1
+	`, id, body.Name, body.CronExpression, body.Enabled); err != nil {
+		respondError(c, http.StatusInternalServerError, "update schedule: "+err.Error())
+		return
+	}
+
+	var sched models.DownloadSchedule
+	if err := h.db.Get(&sched, `SELECT * FROM download_schedules WHERE id = $1`, id); err != nil {
+		respondError(c, http.StatusNotFound, "schedule not found")
+		return
+	}
+
+	respondOK(c, sched, nil)
+}
+
+// Delete removes a schedule.
+// DELETE /api/schedules/:id
+func (h *ScheduleHandler) Delete(c *gin.Context) {
+	id := c.Param("id")
+
+	if _, err := h.db.Exec(`DELETE FROM download_schedules WHERE id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "delete schedule: "+err.Error())
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}

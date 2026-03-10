@@ -1,0 +1,49 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/backend/vendor/
+/backend/bin/
+/backend/dist/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# Docker
+.env
+*.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Generated / runtime
+thumbnails/
+downloads/
+*.pid
+
+# Secrets
+*.pem
+*.key
+*.cert
+secrets/
+
+# Test artifacts
+coverage/
+*.coverprofile
