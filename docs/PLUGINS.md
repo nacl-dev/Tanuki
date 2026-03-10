@@ -73,7 +73,8 @@ def fetch_metadata(url: str) -> dict:
 
 ## Roadmap
 
-- [ ] Auto-tagging using SauceNAO / IQDB reverse image search
+- [x] Auto-tagging using SauceNAO / IQDB reverse image search *(built-in as of v0.4)*
+- [x] Perceptual hash duplicate detection *(built-in as of v0.5)*
 - [ ] Metadata scraping from nhentai / e-hentai
 - [ ] Tag implication & alias resolution
 - [ ] Community plugin registry

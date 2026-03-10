@@ -8,8 +8,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nacl-dev/tanuki/internal/autotag"
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/dedup"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/scanner"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
@@ -49,6 +51,15 @@ func main() {
 	sc := scanner.New(db, cfg.MediaPath, log)
 	gen := thumbnails.New(cfg.ThumbnailsPath, log)
 
+	// Services for v0.4 / v0.5
+	dedupSvc := dedup.NewService(db, cfg.DuplicateThreshold, log)
+	autotagSvc := autotag.NewService(db, autotag.Config{
+		SauceNAOAPIKey: cfg.SauceNAOAPIKey,
+		IQDBEnabled:    cfg.IQDBEnabled,
+		Threshold:      float64(cfg.AutoTagSimilarityThreshold),
+		RateLimitMs:    cfg.AutoTagRateLimitMs,
+	}, log)
+
 	ticker := time.NewTicker(time.Duration(cfg.ScanInterval) * time.Second)
 	defer ticker.Stop()
 
@@ -57,6 +68,12 @@ func main() {
 		log.Error("initial scan failed", zap.Error(err))
 	}
 	generateMissingThumbnails(ctx, db, gen, log)
+	if cfg.PHashOnScan {
+		computeMissingPHashes(ctx, db, dedupSvc, log)
+	}
+	if cfg.AutoTagOnScan {
+		autoTagUntagged(ctx, db, autotagSvc, log)
+	}
 
 	for {
 		select {
@@ -68,6 +85,12 @@ func main() {
 				log.Error("periodic scan failed", zap.Error(err))
 			}
 			generateMissingThumbnails(ctx, db, gen, log)
+			if cfg.PHashOnScan {
+				computeMissingPHashes(ctx, db, dedupSvc, log)
+			}
+			if cfg.AutoTagOnScan {
+				autoTagUntagged(ctx, db, autotagSvc, log)
+			}
 		}
 	}
 }
@@ -107,6 +130,79 @@ func generateMissingThumbnails(ctx context.Context, db *database.DB, gen *thumbn
 			thumbPath, item.ID,
 		); err != nil {
 			log.Error("worker: update thumbnail_path", zap.String("id", item.ID), zap.Error(err))
+		}
+	}
+}
+
+// computeMissingPHashes calculates perceptual hashes for media items that don't have one.
+func computeMissingPHashes(ctx context.Context, db *database.DB, svc *dedup.Service, log *zap.Logger) {
+	var items []models.Media
+	if err := db.SelectContext(ctx, &items, `
+		SELECT * FROM media
+		WHERE deleted_at IS NULL AND phash IS NULL
+		ORDER BY created_at DESC
+		LIMIT 500
+	`); err != nil {
+		log.Error("worker: query media without phash", zap.Error(err))
+		return
+	}
+
+	total := len(items)
+	for n, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		log.Info("worker: computing phash",
+			zap.String("title", item.Title),
+			zap.Int("n", n+1),
+			zap.Int("total", total),
+		)
+		if err := svc.ComputeAndStore(ctx, &item); err != nil {
+			log.Warn("worker: phash computation failed",
+				zap.String("title", item.Title),
+				zap.Error(err),
+			)
+		}
+	}
+}
+
+// autoTagUntagged runs auto-tagging on items that have not been tagged yet.
+func autoTagUntagged(ctx context.Context, db *database.DB, svc *autotag.Service, log *zap.Logger) {
+	var items []models.Media
+	if err := db.SelectContext(ctx, &items, `
+		SELECT * FROM media
+		WHERE deleted_at IS NULL
+		  AND auto_tag_status IN ('pending', 'failed')
+		  AND (type = 'image' OR thumbnail_path != '')
+		ORDER BY created_at DESC
+		LIMIT 100
+	`); err != nil {
+		log.Error("worker: query untagged media", zap.Error(err))
+		return
+	}
+
+	total := len(items)
+	for n, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		log.Info("worker: auto-tagging",
+			zap.String("title", item.Title),
+			zap.Int("n", n+1),
+			zap.Int("total", total),
+		)
+		result, err := svc.AutoTag(ctx, &item)
+		if err != nil {
+			log.Warn("worker: auto-tag failed", zap.String("title", item.Title), zap.Error(err))
+			_ = svc.MarkFailed(ctx, item.ID)
+			continue
+		}
+		if result.Source == "none" {
+			_ = svc.MarkFailed(ctx, item.ID)
+			continue
+		}
+		if err := svc.ApplyTags(ctx, item.ID, result, result.SuggestedTags); err != nil {
+			log.Warn("worker: apply tags failed", zap.String("title", item.Title), zap.Error(err))
 		}
 	}
 }

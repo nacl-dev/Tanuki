@@ -35,6 +35,17 @@ type Config struct {
 	// Download manager
 	MaxConcurrentDownloads int
 	RateLimitDelay         int // milliseconds
+
+	// Auto-tagging (v0.4)
+	SauceNAOAPIKey            string
+	IQDBEnabled               bool
+	AutoTagSimilarityThreshold int  // percentage 0-100
+	AutoTagOnScan             bool
+	AutoTagRateLimitMs        int  // milliseconds between API requests
+
+	// Duplicate detection (v0.5)
+	DuplicateThreshold int  // max Hamming distance to consider duplicate
+	PHashOnScan        bool // compute pHash during scan
 }
 
 // Load reads configuration from environment variables, applying defaults where
@@ -52,6 +63,17 @@ func Load() (*Config, error) {
 		ScanInterval:           getEnvInt("SCAN_INTERVAL", 300),
 		MaxConcurrentDownloads: getEnvInt("MAX_CONCURRENT_DOWNLOADS", 3),
 		RateLimitDelay:         getEnvInt("RATE_LIMIT_DELAY", 1000),
+
+		// Auto-tagging (v0.4)
+		SauceNAOAPIKey:             getEnv("SAUCENAO_API_KEY", ""),
+		IQDBEnabled:                getEnvBool("IQDB_ENABLED", true),
+		AutoTagSimilarityThreshold: getEnvInt("AUTOTAG_SIMILARITY_THRESHOLD", 80),
+		AutoTagOnScan:              getEnvBool("AUTOTAG_ON_SCAN", false),
+		AutoTagRateLimitMs:         getEnvInt("AUTOTAG_RATE_LIMIT_MS", 5000),
+
+		// Duplicate detection (v0.5)
+		DuplicateThreshold: getEnvInt("DUPLICATE_THRESHOLD", 10),
+		PHashOnScan:        getEnvBool("PHASH_ON_SCAN", true),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -96,4 +118,16 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }

@@ -5,12 +5,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"go.uber.org/zap"
 )
 
 // Router creates and returns a configured Gin engine with all API routes
 // and a static file server for the compiled frontend.
-func Router(db *database.DB, staticDir string) *gin.Engine {
+func Router(db *database.DB, staticDir string, cfg *config.Config, log *zap.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
@@ -32,7 +34,7 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.1.0"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.5.0"})
 	})
 
 	// ─── API routes ───────────────────────────────────────────────────────────
@@ -50,6 +52,16 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 			media.GET("/:id/thumbnail", mh.ServeThumbnail)
 			media.GET("/:id/pages", mh.ListPages)
 			media.GET("/:id/pages/:page", mh.ServePage)
+
+			// Auto-tagging (v0.4)
+			ah := newAutoTagHandler(db, cfg, log)
+			media.POST("/:id/autotag", ah.AutoTag)
+			media.POST("/autotag/batch", ah.AutoTagBatch)
+
+			// Duplicate detection (v0.5)
+			dh := newDedupHandler(db, cfg.DuplicateThreshold, log)
+			media.GET("/:id/duplicates", dh.GetDuplicates)
+			media.POST("/:id/phash", dh.ComputePHash)
 		}
 
 		// Tags
@@ -64,15 +76,15 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 		}
 
 		// Downloads
-		dh := &DownloadHandler{db: db}
+		dldh := &DownloadHandler{db: db}
 		downloads := api.Group("/downloads")
 		{
-			downloads.GET("", dh.List)
-			downloads.POST("", dh.Create)
-			downloads.POST("/batch", dh.Batch)
-			downloads.GET("/:id", dh.Get)
-			downloads.PATCH("/:id", dh.Update)
-			downloads.DELETE("/:id", dh.Delete)
+			downloads.GET("", dldh.List)
+			downloads.POST("", dldh.Create)
+			downloads.POST("/batch", dldh.Batch)
+			downloads.GET("/:id", dldh.Get)
+			downloads.PATCH("/:id", dldh.Update)
+			downloads.DELETE("/:id", dldh.Delete)
 		}
 
 		// Schedules
@@ -88,6 +100,14 @@ func Router(db *database.DB, staticDir string) *gin.Engine {
 		// Library
 		lh := &LibraryHandler{db: db}
 		api.POST("/library/scan", lh.Scan)
+
+		// Duplicates (v0.5)
+		ddh := newDedupHandler(db, cfg.DuplicateThreshold, log)
+		duplicates := api.Group("/duplicates")
+		{
+			duplicates.GET("", ddh.ListDuplicates)
+			duplicates.POST("/resolve", ddh.ResolveDuplicates)
+		}
 	}
 
 	// ─── Static frontend ──────────────────────────────────────────────────────

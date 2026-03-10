@@ -47,7 +47,7 @@ func main() {
 		staticDir = "/app/static"
 	}
 
-	router := api.Router(db, staticDir)
+	router := api.Router(db, staticDir, cfg, log)
 
 	srv := &http.Server{
 		Addr:         cfg.ServerAddr(),

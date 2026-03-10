@@ -92,6 +92,22 @@
           <div class="tags-list">
             <TagBadge v-for="tag in media.tags" :key="tag.id" :tag="tag" />
           </div>
+          <!-- Auto-Tag button -->
+          <button
+            class="btn btn-secondary btn-sm autotag-btn"
+            :disabled="autoTagging"
+            @click="runAutoTag"
+          >
+            {{ autoTagging ? '⏳ Tagging…' : '🏷️ Auto-Tag' }}
+          </button>
+        </div>
+
+        <!-- Duplicate warning -->
+        <div v-if="duplicates.length > 0" class="meta-section">
+          <span class="meta-label">Duplicates</span>
+          <RouterLink :to="`/duplicates`" class="dup-warning">
+            ⚠️ {{ duplicates.length }} duplicate{{ duplicates.length !== 1 ? 's' : '' }} found
+          </RouterLink>
         </div>
 
         <!-- Details -->
@@ -110,6 +126,10 @@
               <td>Progress</td>
               <td>Page {{ media.read_progress + 1 }} / {{ media.read_total || pages?.total_pages }}</td>
             </tr>
+            <tr v-if="media.auto_tag_status === 'completed'">
+              <td>Auto-tag</td>
+              <td>{{ media.auto_tag_source }} ({{ media.auto_tag_similarity?.toFixed(1) }}%)</td>
+            </tr>
             <tr><td>SHA-256</td><td class="meta-checksum">{{ media.checksum || '—' }}</td></tr>
             <tr><td>Added</td><td>{{ new Date(media.created_at).toLocaleDateString() }}</td></tr>
           </table>
@@ -125,16 +145,27 @@
   </div>
 
   <div v-else class="not-found">Media not found.</div>
+
+  <!-- Auto-Tag Result Dialog -->
+  <AutoTagDialog
+    v-if="autoTagResult"
+    :result="autoTagResult"
+    @close="autoTagResult = null"
+    @apply="onApplyTags"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { mediaApi, type Media, type PagesResponse } from '@/api/mediaApi'
+import { autotagApi, type AutoTagResult, type SuggestedTag } from '@/api/autotagApi'
+import { dedupApi, type DuplicateItem } from '@/api/dedupApi'
 import { useMediaStore } from '@/stores/mediaStore'
 import TagBadge from '@/components/Tags/TagBadge.vue'
 import VideoPlayer from '@/components/Player/VideoPlayer.vue'
 import MangaReader from '@/components/Reader/MangaReader.vue'
+import AutoTagDialog from '@/components/AutoTag/AutoTagDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -145,6 +176,13 @@ const loading = ref(true)
 const imgError = ref(false)
 const pages = ref<PagesResponse | null>(null)
 const showReader = ref(false)
+
+// Auto-tag state
+const autoTagging = ref(false)
+const autoTagResult = ref<AutoTagResult | null>(null)
+
+// Duplicate detection state
+const duplicates = ref<DuplicateItem[]>([])
 
 // Debounce timer for progress saves
 let progressTimer: ReturnType<typeof setTimeout> | null = null
@@ -194,10 +232,51 @@ onMounted(async () => {
         // Non-fatal: archive may not be accessible
       }
     }
+
+    // Load duplicates (non-blocking)
+    loadDuplicates(res.data.id)
   } finally {
     loading.value = false
   }
 })
+
+async function loadDuplicates(id: string) {
+  try {
+    const res = await dedupApi.getDuplicatesForMedia(id)
+    duplicates.value = res.data ?? []
+  } catch {
+    // Non-fatal: pHash may not be computed yet
+  }
+}
+
+async function runAutoTag() {
+  if (!media.value || autoTagging.value) return
+  autoTagging.value = true
+  try {
+    const res = await autotagApi.autotagSingle(media.value.id)
+    autoTagResult.value = res.data
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Auto-tag failed'
+    alert(msg)
+  } finally {
+    autoTagging.value = false
+  }
+}
+
+async function onApplyTags(tags: SuggestedTag[]) {
+  if (!media.value || !autoTagResult.value) return
+  try {
+    await autotagApi.autotagSingle(media.value.id, false, tags)
+    // Reload media to get updated tags
+    const res = await mediaApi.get(media.value.id)
+    media.value = res.data
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Failed to apply tags'
+    alert(msg)
+  } finally {
+    autoTagResult.value = null
+  }
+}
 
 async function toggleFav() {
   if (!media.value) return
@@ -348,4 +427,22 @@ function formatBytes(b: number): string {
 .btn-sm { padding: 6px 12px; font-size: 13px; }
 
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.autotag-btn { align-self: flex-start; margin-top: 4px; }
+
+.dup-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #f59e0b;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid #f59e0b;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+
+.dup-warning:hover { background: rgba(245, 158, 11, 0.1); }
 </style>

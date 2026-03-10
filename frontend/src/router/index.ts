@@ -25,6 +25,11 @@ const router = createRouter({
       component: () => import('@/pages/TagsPage.vue'),
     },
     {
+      path: '/duplicates',
+      name: 'duplicates',
+      component: () => import('@/pages/DuplicatesPage.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/pages/SettingsPage.vue'),

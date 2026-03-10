@@ -16,6 +16,17 @@ const (
 	MediaTypeDoujinshi MediaType = "doujinshi"
 )
 
+// AutoTagStatus represents the auto-tagging state of a media item.
+type AutoTagStatus string
+
+const (
+	AutoTagStatusPending    AutoTagStatus = "pending"
+	AutoTagStatusProcessing AutoTagStatus = "processing"
+	AutoTagStatusCompleted  AutoTagStatus = "completed"
+	AutoTagStatusFailed     AutoTagStatus = "failed"
+	AutoTagStatusSkipped    AutoTagStatus = "skipped"
+)
+
 // Media represents a single media item in the library.
 type Media struct {
 	ID        string     `db:"id"         json:"id"`
@@ -35,6 +46,16 @@ type Media struct {
 	CreatedAt     time.Time  `db:"created_at"     json:"created_at"`
 	UpdatedAt     time.Time  `db:"updated_at"     json:"updated_at"`
 	DeletedAt     *time.Time `db:"deleted_at"     json:"deleted_at,omitempty"`
+
+	// Auto-tagging fields (v0.4)
+	AutoTagStatus     AutoTagStatus `db:"auto_tag_status"     json:"auto_tag_status"`
+	AutoTagSource     string        `db:"auto_tag_source"     json:"auto_tag_source,omitempty"`
+	AutoTagSimilarity float32       `db:"auto_tag_similarity" json:"auto_tag_similarity,omitempty"`
+	AutoTaggedAt      *time.Time    `db:"auto_tagged_at"      json:"auto_tagged_at,omitempty"`
+
+	// Perceptual hash fields (v0.5)
+	PHash           *int64     `db:"phash"             json:"phash,omitempty"`
+	PHashComputedAt *time.Time `db:"phash_computed_at" json:"phash_computed_at,omitempty"`
 
 	// Computed / joined fields (not DB columns)
 	Tags []Tag `db:"-" json:"tags,omitempty"`

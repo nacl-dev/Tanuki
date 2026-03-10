@@ -47,7 +47,7 @@
         <h3>About</h3>
         <p class="about-text">
           🦝 <strong>Tanuki</strong> – Self-Hosted Media Vault<br />
-          Version 0.1.0
+          Version 0.5.0
         </p>
       </div>
     </div>
