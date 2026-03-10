@@ -307,15 +307,18 @@ func listZipImages(path string) ([]string, error) {
 }
 
 // listCBRImages lists image filenames inside a CBR/RAR archive using unrar.
+// The file path comes from the database and is not user-controlled.
+// exec.Command passes arguments directly to execve (no shell), so shell
+// metacharacters in the path are not interpreted.
 func listCBRImages(path string) ([]string, error) {
-	out, err := exec.Command("unrar", "lb", path).Output()
+	out, err := exec.Command("unrar", "lb", "--", path).Output()
 	if err != nil {
 		return nil, fmt.Errorf("unrar lb: %w", err)
 	}
 	var names []string
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && isImageFile(line) {
+		if line != "" && isImageFile(line) && !strings.HasPrefix(line, "-") {
 			names = append(names, line)
 		}
 	}
@@ -449,7 +452,9 @@ func serveCBRPage(c *gin.Context, path string, pageIdx int) error {
 	}
 
 	target := names[pageIdx]
-	cmd := exec.Command("unrar", "p", "-inul", path, target)
+	// Pass "--" before filename arguments so unrar cannot misinterpret
+	// archive-embedded filenames as command-line flags.
+	cmd := exec.Command("unrar", "p", "-inul", "--", path, target)
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("unrar p: %w", err)

@@ -68,7 +68,7 @@
             <option v-for="s in speeds" :key="s" :value="s">{{ s }}x</option>
           </select>
           <button class="vp-btn" @click="toggleFullscreen" :title="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
-            {{ isFullscreen ? '⛶' : '⛶' }}{{ isFullscreen ? '↙' : '↗' }}
+            {{ isFullscreen ? '⊠' : '⛶' }}
           </button>
         </div>
       </div>

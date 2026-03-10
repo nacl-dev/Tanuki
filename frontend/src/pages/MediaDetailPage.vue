@@ -239,6 +239,7 @@ function onVideoTimeUpdate(time: number) {
   if (!media.value) return
   if (videoProgressTimer) clearTimeout(videoProgressTimer)
   videoProgressTimer = setTimeout(async () => {
+    // read_total is not used for videos (0 = not applicable)
     await mediaStore.saveProgress(media.value!.id, Math.floor(time), 0)
   }, 5000)
 }
