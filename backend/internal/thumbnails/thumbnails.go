@@ -269,5 +269,3 @@ func isImageExt(ext string) bool {
 	}
 	return false
 }
-
-
