@@ -145,7 +145,7 @@ Tanuki/
 | **v0.3** | Video player, manga/comic reader | ✅ Done |
 | **v0.4** | Auto-tagging via SauceNAO / IQDB | ✅ Done |
 | **v0.5** | Perceptual hash duplicate detection | ✅ Done |
-| **v0.6** | Multi-user authentication | 📋 Planned |
+| **v0.6** | Multi-user authentication | 🚧 In Progress |
 | **v1.0** | Stable release, community plugins | 📋 Planned |
 
 ---

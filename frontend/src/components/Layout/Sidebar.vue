@@ -17,10 +17,23 @@
         <span>{{ item.label }}</span>
       </RouterLink>
     </nav>
+
+    <div class="sidebar-footer">
+      <button class="nav-item nav-item--logout" @click="onLogout">
+        <span class="nav-icon">🚪</span>
+        <span>Sign Out</span>
+      </button>
+    </div>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/authStore'
+
+const authStore = useAuthStore()
+const router = useRouter()
+
 const navItems = [
   { name: 'library',    to: '/',           icon: '📚', label: 'Library'    },
   { name: 'downloads',  to: '/downloads',  icon: '⬇️',  label: 'Downloads'  },
@@ -28,6 +41,11 @@ const navItems = [
   { name: 'duplicates', to: '/duplicates', icon: '🔍',  label: 'Duplicates' },
   { name: 'settings',   to: '/settings',   icon: '⚙️',  label: 'Settings'   },
 ]
+
+function onLogout() {
+  authStore.logout()
+  router.push('/login')
+}
 </script>
 
 <style scoped>
@@ -57,6 +75,7 @@ const navItems = [
   display: flex;
   flex-direction: column;
   padding: 12px 0;
+  flex: 1;
 }
 
 .nav-item {
@@ -82,4 +101,18 @@ const navItems = [
 }
 
 .nav-icon { font-size: 18px; }
+
+.sidebar-footer {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.nav-item--logout {
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: inherit;
+  text-align: left;
+}
 </style>
