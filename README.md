@@ -1,24 +1,43 @@
 # Tanuki
 
-Self-hosted media vault for videos, images, manga, comics, doujinshi and source downloads.
+> Self-hosted media vault for videos, images, manga, comics, doujinshi and source downloads.
 
-Tanuki combines a library scanner, downloader, reader/player, tagging workflow and collections UI in a single Docker stack.
+Tanuki brings library management, downloading, tagging, reading and playback together in one Docker-based stack.
 
-## What Tanuki Can Do
+## Overview
 
-- Scan and organize a local library from `/media`
-- Import unorganized files through `/inbox`
-- Download media from supported public sources into the library
-- Browse videos, images, manga, comics and doujinshi in one UI
-- Generate thumbnails for local files automatically
-- Save reading progress and video resume position
-- Edit metadata from the frontend
-- Create manual and smart collections
-- Find duplicates with perceptual hashing
-- Auto-tag media through reverse-image matching
-- Run as a multi-user app with authentication
+Tanuki is built for collections that are:
 
-## Current Feature Set
+- mixed across multiple media types
+- partially unorganized
+- spread across local files and public source sites
+- meant to be browsed, edited and resumed from the browser
+
+It combines:
+
+- a recursive media library scanner
+- a download queue with site-specific connectors
+- a video player and manga/comic reader
+- metadata editing and thumbnail management
+- reverse-image auto-tagging
+- duplicate detection
+- manual and smart collections
+- multi-user authentication
+
+## Highlights
+
+| Area | What you get |
+|---|---|
+| Library | Scan `/media`, detect media types, generate thumbnails, edit metadata |
+| Intake | Import unorganized files from `/inbox` |
+| Viewer | Custom video player, manga/comic reader, fullscreen, resume/progress |
+| Downloads | Queue, schedules, live progress, automatic organize + scan |
+| Tags | Filtering, search, counts, auto-tagging |
+| Duplicates | Perceptual hash duplicate detection |
+| Collections | Manual collections and rule-based smart collections |
+| Auth | Multi-user login and protected API routes |
+
+## Feature Set
 
 ### Library
 
@@ -29,22 +48,23 @@ Tanuki combines a library scanner, downloader, reader/player, tagging workflow a
   - `manga`
   - `comic`
   - `doujinshi`
-- Automatic type detection for common video/image/archive formats
-- Thumbnail generation for videos and images
-- Manual metadata editing in the UI:
+- Automatic type detection for common video, image and archive files
+- Automatic thumbnail generation for local media
+- Frontend metadata editing:
   - title
   - date
   - language
   - source URL
   - tags
-  - custom cover upload or remote cover URL
+  - custom cover upload
+  - remote cover URL
 - Delete from database only or delete local file too
 
 ### Reader and Player
 
 - Custom video player with:
   - click-anywhere play/pause
-  - speed control
+  - speed controls
   - fullscreen
   - saved resume position
 - Manga/comic reader with:
@@ -58,26 +78,32 @@ Tanuki combines a library scanner, downloader, reader/player, tagging workflow a
 
 ### Downloads
 
-- Queue-based download manager with live progress
+- Queue-based download manager
+- Live progress updates
 - Scheduled downloads
 - Batch URL submission
-- Automatic post-download organize + library refresh
-- Supported public connectors currently include:
-  - `hentai0.com` video pages
-  - `doujins.com` gallery pages
-  - `rule34.art` comic and video pages
-  - `danbooru.donmai.us` post pages
-  - `safebooru.org` post pages
-  - `gelbooru.com` post pages
-- Generic tools still available where useful:
-  - `yt-dlp`
-  - `gallery-dl`
-  - HTTP fallback for direct media files
+- Automatic organize after download
+- Automatic library refresh after completion
+
+Currently supported public connectors:
+
+- `hentai0.com` video pages
+- `doujins.com` gallery pages
+- `rule34.art` comic and video pages
+- `danbooru.donmai.us` post pages
+- `safebooru.org` post pages
+- `gelbooru.com` post pages
+
+Generic tools still available where useful:
+
+- `yt-dlp`
+- `gallery-dl`
+- HTTP fallback for direct media files
 
 ### Tags, Duplicates and Auto-Tagging
 
 - Tag filters and tag search in the library
-- Tag counts based on real media usage
+- Real usage-based tag counts
 - Reverse-image-based auto-tag flow
 - Perceptual hash duplicate detection
 
@@ -90,7 +116,7 @@ Tanuki combines a library scanner, downloader, reader/player, tagging workflow a
   - tag
   - favorites only
   - minimum rating
-- Manual items and automatic rule matches can coexist in the same collection
+- Manual items and automatic matches can coexist in the same collection
 
 ## Quick Start
 
@@ -99,7 +125,7 @@ Tanuki combines a library scanner, downloader, reader/player, tagging workflow a
 - Docker
 - Docker Compose
 
-### Start the stack
+### Start
 
 ```bash
 git clone https://github.com/nacl-dev/Tanuki.git
@@ -107,17 +133,17 @@ cd Tanuki
 docker compose up -d --build
 ```
 
-Then open:
+Open:
 
 - [http://localhost:8080](http://localhost:8080)
 
-Important notes:
+### Good to know
 
 - `media/` and `inbox/` are created automatically by Docker bind mounts
-- you do not need to pre-create the library folders manually
-- the app runs database migrations automatically on startup
+- you do not need to create the folder structure manually
+- database migrations run automatically on startup
 
-## Default Services
+## Services
 
 | Service | Purpose | Port |
 |---|---|---|
@@ -127,20 +153,20 @@ Important notes:
 | `db` | PostgreSQL 16 | internal |
 | `cache` | Redis 7 | internal |
 
-## Default Paths
+## Paths
 
-Inside containers:
+### Inside containers
 
 - media library: `/media`
 - inbox: `/inbox`
 - thumbnails: `/thumbnails`
 
-On the host:
+### On the host
 
 - library files: `./media`
 - intake folder: `./inbox`
 
-Typical library structure created by organize/download flows:
+### Typical library structure
 
 ```text
 media/
@@ -158,9 +184,7 @@ media/
 
 ## Configuration
 
-The stack works with defaults, but you can override settings through environment variables.
-
-Important variables:
+The stack works with defaults, but environment variables can override runtime behavior.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -170,8 +194,8 @@ Important variables:
 | `MEDIA_PATH` | `/media` | Library root |
 | `INBOX_PATH` | `/inbox` | Intake/import root |
 | `THUMBNAILS_PATH` | `/thumbnails` | Thumbnail storage |
-| `DOWNLOADS_PATH` | `/media` | Download staging target root |
-| `SECRET_KEY` | `change-me-in-production` | Auth/session secret |
+| `DOWNLOADS_PATH` | `/media` | Download target root |
+| `SECRET_KEY` | `change-me-in-production` | App/auth secret |
 | `JWT_SECRET` | falls back to `SECRET_KEY` | JWT signing key |
 | `JWT_EXPIRY_HOURS` | `24` | Login token lifetime |
 | `SCAN_INTERVAL` | `300` | Background scan interval in seconds |
@@ -188,12 +212,12 @@ Important variables:
 | `PLUGINS_ENABLED` | `true` | Plugin system toggle |
 | `PLUGINS_PATH` | `/app/config/plugins` | Plugin folder |
 
-## Typical Workflow
+## Typical Workflows
 
 ### Import existing files
 
 1. Drop files or folders into `./inbox`
-2. Use `Scan Library` or the organize flow in the app
+2. Trigger `Scan Library` or use the organize flow
 3. Tanuki moves or copies them into the library structure
 4. The worker scans them and generates thumbnails
 
@@ -269,10 +293,10 @@ Tanuki/
 
 ## Notes
 
-- Empty library/runtime folders are intentionally not tracked in Git
-- real downloaded media should stay out of Git history
 - `media/` and `inbox/` are runtime data, not source files
-- some older docs or comments may still refer to earlier paths like `/downloads`; current Docker setup stores into `/media`
+- empty runtime folders are intentionally not tracked in Git
+- downloaded media should not be committed
+- older docs or comments may still mention earlier paths like `/downloads`; the current Docker setup writes into `/media`
 
 ## License
 
