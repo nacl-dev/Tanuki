@@ -36,6 +36,7 @@ logs/
 # Generated / runtime
 /thumbnails/
 /downloads/
+/media/
 *.pid
 
 # Secrets
