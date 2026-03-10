@@ -1,167 +1,279 @@
-# 🦝 Tanuki
+# Tanuki
 
-> **Self-Hosted Media Vault** – Organize, browse, and download images, videos, manga, doujinshi and comics from a single Docker stack.
+Self-hosted media vault for videos, images, manga, comics, doujinshi and source downloads.
 
----
+Tanuki combines a library scanner, downloader, reader/player, tagging workflow and collections UI in a single Docker stack.
 
-## ✨ Features
+## What Tanuki Can Do
 
-### 📚 Library
-- Recursive filesystem scanner with automatic media detection
-- Supported types: **Videos** (MP4, MKV, WEBM), **Images** (JPG, PNG, WEBP, GIF), **Archives** (ZIP, CBZ, CBR)
-- SHA-256 checksums & perceptual hashing for duplicate detection
-- Automatic thumbnail generation via **FFmpeg** (video) and **libvips** (image)
+- Scan and organize a local library from `/media`
+- Import unorganized files through `/inbox`
+- Download media from supported public sources into the library
+- Browse videos, images, manga, comics and doujinshi in one UI
+- Generate thumbnails for local files automatically
+- Save reading progress and video resume position
+- Edit metadata from the frontend
+- Create manual and smart collections
+- Find duplicates with perceptual hashing
+- Auto-tag media through reverse-image matching
+- Run as a multi-user app with authentication
 
-### 🏷️ Tagging
-- Booru-style tag categories: `general`, `artist`, `character`, `parody`, `genre`, `meta`
-- Autocomplete tag search
-- Bulk tagging, tag aliases and implications
+## Current Feature Set
 
-### 🖼️ Viewer
-- Responsive masonry gallery with lazy loading
-- Embedded video player with speed control
-- Manga / comic reader with continuous scroll and RTL support
-- Dark theme by default (amber/orange accent)
+### Library
 
-### ⬇️ Download Manager
-- Supports **gallery-dl** and **yt-dlp** for thousands of sites
-- Direct HTTP file download as fallback
-- Real-time progress tracking with pause / resume / cancel
-- Cron-based scheduled downloads
+- Recursive scan of `/media`
+- Supported media types:
+  - `video`
+  - `image`
+  - `manga`
+  - `comic`
+  - `doujinshi`
+- Automatic type detection for common video/image/archive formats
+- Thumbnail generation for videos and images
+- Manual metadata editing in the UI:
+  - title
+  - date
+  - language
+  - source URL
+  - tags
+  - custom cover upload or remote cover URL
+- Delete from database only or delete local file too
+
+### Reader and Player
+
+- Custom video player with:
+  - click-anywhere play/pause
+  - speed control
+  - fullscreen
+  - saved resume position
+- Manga/comic reader with:
+  - single page
+  - double page
+  - scroll mode
+  - RTL mode
+  - zoom controls
+  - fullscreen
+  - saved read progress
+
+### Downloads
+
+- Queue-based download manager with live progress
+- Scheduled downloads
 - Batch URL submission
+- Automatic post-download organize + library refresh
+- Supported public connectors currently include:
+  - `hentai0.com` video pages
+  - `doujins.com` gallery pages
+  - `rule34.art` comic and video pages
+  - `danbooru.donmai.us` post pages
+  - `safebooru.org` post pages
+  - `gelbooru.com` post pages
+- Generic tools still available where useful:
+  - `yt-dlp`
+  - `gallery-dl`
+  - HTTP fallback for direct media files
 
----
+### Tags, Duplicates and Auto-Tagging
 
-## 🚀 Quick Start
+- Tag filters and tag search in the library
+- Tag counts based on real media usage
+- Reverse-image-based auto-tag flow
+- Perceptual hash duplicate detection
+
+### Collections
+
+- Manual collections
+- Smart collections with rules for:
+  - media type
+  - title contains
+  - tag
+  - favorites only
+  - minimum rating
+- Manual items and automatic rule matches can coexist in the same collection
+
+## Quick Start
+
+### Requirements
+
+- Docker
+- Docker Compose
+
+### Start the stack
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/nacl-dev/Tanuki.git
 cd Tanuki
-
-# 2. Copy environment file and adjust values
-cp .env.example .env
-
-# 3. Create the media directory and start the stack
-mkdir -p media
-docker compose up -d
-
-# 4. Open in your browser
-open http://localhost:8080
+docker compose up -d --build
 ```
 
----
+Then open:
 
-## 🐳 Services
+- [http://localhost:8080](http://localhost:8080)
 
-| Service       | Description                                       | Port  |
-|---------------|---------------------------------------------------|-------|
-| `app`         | Go API server + Vue 3 frontend                    | 8080  |
-| `worker`      | Background scanner, thumbnails, hashing, tagging  | –     |
-| `downloader`  | gallery-dl / yt-dlp download daemon               | –     |
-| `db`          | PostgreSQL 16                                     | 5432  |
-| `cache`       | Redis 7                                           | 6379  |
+Important notes:
 
----
+- `media/` and `inbox/` are created automatically by Docker bind mounts
+- you do not need to pre-create the library folders manually
+- the app runs database migrations automatically on startup
 
-## 🛠️ Tech Stack
+## Default Services
 
-| Layer        | Technology                             |
-|--------------|----------------------------------------|
-| Backend      | Go 1.24, Gin, sqlx, go-redis           |
-| Frontend     | Vue 3, Vite, TypeScript, Pinia         |
-| Database     | PostgreSQL 16                          |
-| Cache/Queue  | Redis 7                                |
-| Thumbnails   | FFmpeg + libvips                       |
-| Downloads    | gallery-dl + yt-dlp                    |
+| Service | Purpose | Port |
+|---|---|---|
+| `app` | API server + frontend | `8080` |
+| `worker` | scanner, thumbnails, background processing | - |
+| `downloader` | queued download daemon | - |
+| `db` | PostgreSQL 16 | internal |
+| `cache` | Redis 7 | internal |
 
----
+## Default Paths
 
-## ⚙️ Configuration
+Inside containers:
 
-Copy `.env.example` to `.env` and adjust the values:
+- media library: `/media`
+- inbox: `/inbox`
+- thumbnails: `/thumbnails`
 
-| Variable                       | Default                                 | Description                                        |
-|--------------------------------|-----------------------------------------|----------------------------------------------------|
-| `DATABASE_URL`                 | `postgresql://tanuki:secret@db:5432/…`  | PostgreSQL connection string                       |
-| `REDIS_URL`                    | `redis://cache:6379`                    | Redis connection string                            |
-| `MEDIA_PATH`                   | `/media`                                | Where your media files live                        |
-| `THUMBNAILS_PATH`              | `/thumbnails`                           | Generated thumbnails                               |
-| `DOWNLOADS_PATH`               | `/downloads`                            | Download destination                               |
-| `SECRET_KEY`                   | *(change me!)*                          | Session signing key                                |
-| `PORT`                         | `8080`                                  | HTTP port                                          |
-| `SCAN_INTERVAL`                | `300`                                   | Auto-scan interval (seconds)                       |
-| `MAX_CONCURRENT_DOWNLOADS`     | `3`                                     | Parallel download limit                            |
-| `RATE_LIMIT_DELAY`             | `1000`                                  | ms delay between source requests                   |
-| `SAUCENAO_API_KEY`             | *(empty)*                               | SauceNAO API key; leave empty to disable           |
-| `IQDB_ENABLED`                 | `true`                                  | Enable IQDB fallback for auto-tagging              |
-| `AUTOTAG_SIMILARITY_THRESHOLD` | `80`                                    | Minimum match similarity % to accept tags          |
-| `AUTOTAG_ON_SCAN`              | `false`                                 | Auto-tag new items after every scan                |
-| `AUTOTAG_RATE_LIMIT_MS`        | `5000`                                  | ms between reverse-image-search API calls          |
-| `DUPLICATE_THRESHOLD`          | `10`                                    | Max pHash Hamming distance to consider a duplicate |
-| `PHASH_ON_SCAN`                | `true`                                  | Compute perceptual hash during library scan        |
+On the host:
 
----
+- library files: `./media`
+- intake folder: `./inbox`
 
-## 📁 Project Structure
+Typical library structure created by organize/download flows:
 
+```text
+media/
+  Video/
+    2D (Hentai)/
+    3D (Real)/
+  Image/
+    CG Sets/
+    GIFs/
+    Random/
+  Comics/
+    Manga/
+    Doujins/
 ```
+
+## Configuration
+
+The stack works with defaults, but you can override settings through environment variables.
+
+Important variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `8080` | App port |
+| `DATABASE_URL` | `postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable` | PostgreSQL DSN |
+| `REDIS_URL` | `redis://cache:6379` | Redis URL |
+| `MEDIA_PATH` | `/media` | Library root |
+| `INBOX_PATH` | `/inbox` | Intake/import root |
+| `THUMBNAILS_PATH` | `/thumbnails` | Thumbnail storage |
+| `DOWNLOADS_PATH` | `/media` | Download staging target root |
+| `SECRET_KEY` | `change-me-in-production` | Auth/session secret |
+| `JWT_SECRET` | falls back to `SECRET_KEY` | JWT signing key |
+| `JWT_EXPIRY_HOURS` | `24` | Login token lifetime |
+| `SCAN_INTERVAL` | `300` | Background scan interval in seconds |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | Parallel download jobs |
+| `RATE_LIMIT_DELAY` | `1000` | Delay between source requests in ms |
+| `SAUCENAO_API_KEY` | empty | SauceNAO support for auto-tagging |
+| `IQDB_ENABLED` | `true` | IQDB fallback |
+| `AUTOTAG_SIMILARITY_THRESHOLD` | `80` | Auto-tag confidence threshold |
+| `AUTOTAG_ON_SCAN` | `false` | Auto-tag during scan |
+| `AUTOTAG_RATE_LIMIT_MS` | `5000` | Auto-tag request spacing |
+| `DUPLICATE_THRESHOLD` | `10` | pHash duplicate threshold |
+| `PHASH_ON_SCAN` | `true` | Compute pHash on scan |
+| `REGISTRATION_ENABLED` | `true` | Allow self-registration |
+| `PLUGINS_ENABLED` | `true` | Plugin system toggle |
+| `PLUGINS_PATH` | `/app/config/plugins` | Plugin folder |
+
+## Typical Workflow
+
+### Import existing files
+
+1. Drop files or folders into `./inbox`
+2. Use `Scan Library` or the organize flow in the app
+3. Tanuki moves or copies them into the library structure
+4. The worker scans them and generates thumbnails
+
+### Download from a supported source
+
+1. Open Downloads
+2. Paste one or more URLs
+3. Watch live progress
+4. On completion, files are organized and scanned into the library automatically
+
+### Build a smart collection
+
+Examples:
+
+- all `video` items with title containing `Venus Blood`
+- all media tagged `tentacles`
+- favorites with rating `4★+`
+
+## API Surface
+
+Main authenticated API groups:
+
+- `/api/auth`
+- `/api/media`
+- `/api/collections`
+- `/api/tags`
+- `/api/downloads`
+- `/api/schedules`
+- `/api/library`
+- `/api/duplicates`
+- `/api/plugins`
+
+Health endpoints:
+
+- `/healthz`
+- `/api/health`
+
+## Project Structure
+
+```text
 Tanuki/
-├── backend/
-│   ├── cmd/
-│   │   ├── server/          # HTTP server entry point
-│   │   ├── worker/          # Background worker entry point
-│   │   └── downloader/      # Download manager entry point
-│   ├── internal/
-│   │   ├── api/             # Gin route handlers
-│   │   ├── config/          # Environment config loader
-│   │   ├── database/        # DB connection & migrations
-│   │   ├── downloader/      # Download engines & scheduler
-│   │   ├── models/          # sqlx data models
-│   │   └── scanner/         # Filesystem scanner
-│   └── migrations/          # SQL migration files
-├── frontend/
-│   └── src/
-│       ├── api/             # Axios API clients
-│       ├── components/      # Reusable Vue components
-│       ├── pages/           # Page-level components
-│       ├── router/          # Vue Router
-│       └── stores/          # Pinia state stores
-├── config/                  # Config templates
-├── docs/                    # Documentation
-├── docker-compose.yml
-├── Dockerfile
-└── .env.example
+  backend/
+    cmd/
+      server/
+      worker/
+      downloader/
+    internal/
+      api/
+      auth/
+      autotag/
+      config/
+      database/
+      dedup/
+      downloader/
+      models/
+      plugins/
+      scanner/
+      thumbnails/
+    migrations/
+  frontend/
+    src/
+      api/
+      components/
+      pages/
+      router/
+      stores/
+  docs/
+  media/
+  inbox/
+  docker-compose.yml
+  Dockerfile
 ```
 
----
+## Notes
 
-## 🗺️ Roadmap
+- Empty library/runtime folders are intentionally not tracked in Git
+- real downloaded media should stay out of Git history
+- `media/` and `inbox/` are runtime data, not source files
+- some older docs or comments may still refer to earlier paths like `/downloads`; current Docker setup stores into `/media`
 
-| Version | Features | Status |
-|---------|----------|--------|
-| **v0.1** | Filesystem scan, thumbnails, basic gallery | ✅ Done |
-| **v0.2** | Booru-style tag search, filtering, sort options, ratings | ✅ Done |
-| **v0.3** | Video player, manga/comic reader | ✅ Done |
-| **v0.4** | Auto-tagging via SauceNAO / IQDB | ✅ Done |
-| **v0.5** | Perceptual hash duplicate detection | ✅ Done |
-| **v0.6** | Multi-user authentication | ✅ Done |
-| **v1.0** | Stable release, community plugins | ✅ Done |
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue or PR.
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -m 'feat: add my feature'`
-4. Push: `git push origin feature/my-feature`
-5. Open a Pull Request
-
----
-
-## 📄 License
+## License
 
 [MIT](LICENSE)
