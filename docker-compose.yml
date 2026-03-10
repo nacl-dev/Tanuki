@@ -11,7 +11,7 @@ services:
     ports:
       - "${PORT:-8080}:8080"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379}
       - MEDIA_PATH=/media
       - THUMBNAILS_PATH=/thumbnails
@@ -34,7 +34,7 @@ services:
       cache:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -48,7 +48,7 @@ services:
     container_name: tanuki-worker
     restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379}
       - MEDIA_PATH=/media
       - THUMBNAILS_PATH=/thumbnails
@@ -74,7 +74,7 @@ services:
     container_name: tanuki-downloader
     restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379}
       - DOWNLOADS_PATH=/downloads
       - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
@@ -101,7 +101,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tanuki}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tanuki}" ]
       interval: 5s
       timeout: 3s
       retries: 5

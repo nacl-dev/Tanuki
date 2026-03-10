@@ -68,7 +68,7 @@ open http://localhost:8080
 
 | Layer        | Technology                             |
 |--------------|----------------------------------------|
-| Backend      | Go 1.22, Gin, sqlx, go-redis           |
+| Backend      | Go 1.24, Gin, sqlx, go-redis           |
 | Frontend     | Vue 3, Vite, TypeScript, Pinia         |
 | Database     | PostgreSQL 16                          |
 | Cache/Queue  | Redis 7                                |
