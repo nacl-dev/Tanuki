@@ -102,6 +102,15 @@ func (e *ImageGalleryEngine) Download(ctx context.Context, job *models.DownloadJ
 		return fmt.Errorf("rename cbz: %w", err)
 	}
 
+	sidecar := models.ImportMetadata{
+		Title:     gallery.Title,
+		SourceURL: job.URL,
+		Tags:      gallery.Tags,
+	}
+	if err := writeImportMetadata(finalPath, sidecar); err != nil {
+		e.log.Warn("image-gallery: write metadata sidecar failed", zap.String("path", finalPath), zap.Error(err))
+	}
+
 	e.log.Info("image-gallery: archived", zap.String("path", finalPath), zap.Int("pages", len(gallery.Images)))
 	return nil
 }
@@ -111,11 +120,19 @@ func (e *ImageGalleryEngine) FetchMetadata(rawURL string) (*SourceMetadata, erro
 	if err != nil {
 		return nil, err
 	}
-	return &SourceMetadata{Title: gallery.Title, TotalFiles: len(gallery.Images)}, nil
+	return &SourceMetadata{
+		Title:      gallery.Title,
+		Tags:       gallery.Tags,
+		TotalFiles: len(gallery.Images),
+		Extra: map[string]string{
+			"source_url": rawURL,
+		},
+	}, nil
 }
 
 type imageGallery struct {
 	Title  string
+	Tags   []string
 	Images []string
 }
 
@@ -144,11 +161,12 @@ func (e *ImageGalleryEngine) extractGallery(ctx context.Context, rawURL string) 
 	u, _ := urlpkg.Parse(rawURL)
 	title := strings.TrimSpace(extractHTMLTitle(doc))
 	images := extractDoujinsImages(doc, u)
+	tags := extractDoujinsTags(doc)
 	if len(images) == 0 {
 		return nil, newUnsupportedURLError("image-gallery", "reader markup not found")
 	}
 
-	return &imageGallery{Title: title, Images: images}, nil
+	return &imageGallery{Title: title, Tags: tags, Images: images}, nil
 }
 
 func (e *ImageGalleryEngine) writeGalleryArchive(ctx context.Context, zw *zip.Writer, gallery *imageGallery, referer string) error {
@@ -274,6 +292,63 @@ func archiveEntryName(index int, rawURL string) (string, error) {
 		ext = ".jpg"
 	}
 	return fmt.Sprintf("%03d%s", index, ext), nil
+}
+
+func extractDoujinsTags(doc *xhtml.Node) []string {
+	description := extractMetaContent(doc, "name", "description")
+	if description == "" {
+		return nil
+	}
+
+	lower := strings.ToLower(description)
+	idx := strings.Index(lower, "tags:")
+	if idx < 0 {
+		return nil
+	}
+
+	raw := strings.TrimSpace(description[idx+len("tags:"):])
+	raw = strings.TrimSuffix(raw, ".")
+	raw = strings.ReplaceAll(raw, ", and ", ", ")
+	raw = strings.ReplaceAll(raw, " and ", ", ")
+
+	parts := strings.Split(raw, ",")
+	tags := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		tag := strings.TrimSpace(htmlstd.UnescapeString(part))
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		tags = append(tags, tag)
+	}
+	return tags
+}
+
+func extractMetaContent(node *xhtml.Node, attrName, attrValue string) string {
+	var content string
+	var walk func(*xhtml.Node)
+	walk = func(n *xhtml.Node) {
+		if content != "" {
+			return
+		}
+		if n.Type == xhtml.ElementNode && n.Data == "meta" {
+			attrs := attrMap(n)
+			if strings.EqualFold(attrs[attrName], attrValue) {
+				content = strings.TrimSpace(attrs["content"])
+				return
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return content
 }
 
 var invalidArchiveChars = regexp.MustCompile(`[<>:"/\\|?*]+`)

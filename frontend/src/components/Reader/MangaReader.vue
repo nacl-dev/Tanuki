@@ -31,6 +31,9 @@
         <button class="mr-btn" @click="setZoom('fit-height')" :class="{ 'mr-btn-active': zoomMode === 'fit-height' }">Fit H</button>
         <button class="mr-btn" @click="zoomIn" title="Zoom in (+)">＋</button>
         <button class="mr-btn" @click="zoomOut" title="Zoom out (-)">－</button>
+        <button class="mr-btn" @click="toggleFullscreen" :title="isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'">
+          {{ isFullscreen ? 'Exit Full' : 'Fullscreen' }}
+        </button>
       </div>
     </div>
 
@@ -150,6 +153,7 @@ const currentPage = ref(props.initialPage ?? 0)
 const zoomMode = ref<ZoomMode>('fit-width')
 const zoomScale = ref(1)
 const toolbarHidden = ref(false)
+const isFullscreen = ref(false)
 const pageRefs = ref<(HTMLElement | null)[]>([])
 const visiblePages = ref<Set<number>>(new Set([0, 1, 2]))
 
@@ -252,6 +256,20 @@ function onWheel(e: WheelEvent) {
   }
 }
 
+async function toggleFullscreen() {
+  const el = overlay.value
+  if (!el) return
+
+  if (!document.fullscreenElement) {
+    await el.requestFullscreen()
+    return
+  }
+
+  if (document.fullscreenElement === el) {
+    await document.exitFullscreen()
+  }
+}
+
 const imgStyle = computed(() => {
   if (zoomMode.value === 'fit-width') {
     return { maxWidth: '100%', height: 'auto' }
@@ -306,8 +324,23 @@ function onKey(e: KeyboardEvent) {
       e.preventDefault()
       zoomOut()
       break
+    case 'f':
+    case 'F':
+      e.preventDefault()
+      void toggleFullscreen()
+      break
+    case 'Escape':
+      if (document.fullscreenElement === overlay.value) {
+        e.preventDefault()
+        void document.exitFullscreen()
+      }
+      break
   }
   onActivity()
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = document.fullscreenElement === overlay.value
 }
 
 function setPageRef(el: HTMLElement | null, idx: number) {
@@ -362,6 +395,7 @@ watch(mode, async (newMode) => {
 onMounted(() => {
   overlay.value?.focus()
   onActivity()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   // Seed initial visible range
   for (let i = 0; i <= Math.min(2, props.totalPages - 1); i++) {
     visiblePages.value.add(i)
@@ -371,6 +405,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (hideTimer) clearTimeout(hideTimer)
   progressObserver?.disconnect()
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 </script>
 

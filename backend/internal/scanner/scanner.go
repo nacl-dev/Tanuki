@@ -238,17 +238,48 @@ func (s *Scanner) loadImportMetadata(mediaPath string) (*models.ImportMetadata, 
 	sidecarPath := mediaPath + ".tanuki.json"
 	body, err := os.ReadFile(sidecarPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	} else {
+		var metadata models.ImportMetadata
+		if err := json.Unmarshal(body, &metadata); err != nil {
+			return nil, err
+		}
+		return &metadata, nil
+	}
+
+	infoPath := mediaPath + ".info.json"
+	body, err = os.ReadFile(infoPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
 
-	var metadata models.ImportMetadata
-	if err := json.Unmarshal(body, &metadata); err != nil {
+	var payload struct {
+		Title      string   `json:"title"`
+		WebpageURL string   `json:"webpage_url"`
+		OriginalURL string  `json:"original_url"`
+		Thumbnail  string   `json:"thumbnail"`
+		Tags       []string `json:"tags"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
-	return &metadata, nil
+
+	sourceURL := strings.TrimSpace(payload.WebpageURL)
+	if sourceURL == "" {
+		sourceURL = strings.TrimSpace(payload.OriginalURL)
+	}
+
+	return &models.ImportMetadata{
+		Title:     strings.TrimSpace(payload.Title),
+		SourceURL: sourceURL,
+		PosterURL: strings.TrimSpace(payload.Thumbnail),
+		Tags:      payload.Tags,
+	}, nil
 }
 
 func (s *Scanner) applyImportedTags(ctx context.Context, mediaID string, tags []string) error {

@@ -77,11 +77,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
 const props = defineProps<{
   src: string
   poster?: string
+  initialTime?: number
 }>()
 
 const emit = defineEmits<{
@@ -108,6 +109,7 @@ const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 
 let hideTimer: ReturnType<typeof setTimeout> | null = null
 let seekDragging = false
+let resumeApplied = false
 
 const progressPct = computed(() =>
   duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0,
@@ -302,6 +304,14 @@ function onMetadata() {
   duration.value = v.duration
   volume.value = v.volume
   muted.value = v.muted
+  if (!resumeApplied && (props.initialTime ?? 0) > 0) {
+    const safeTime = Math.max(0, Math.min(props.initialTime ?? 0, Math.max(0, (v.duration || 0) - 2)))
+    if (safeTime > 0) {
+      v.currentTime = safeTime
+      currentTime.value = safeTime
+    }
+  }
+  resumeApplied = true
 }
 
 function onEnded() {
@@ -331,6 +341,14 @@ function onFullscreenChange() {
 onMounted(() => {
   document.addEventListener('fullscreenchange', onFullscreenChange)
   container.value?.focus()
+})
+
+watch(() => props.src, () => {
+  resumeApplied = false
+  playing.value = false
+  buffering.value = false
+  currentTime.value = 0
+  duration.value = 0
 })
 
 onUnmounted(() => {

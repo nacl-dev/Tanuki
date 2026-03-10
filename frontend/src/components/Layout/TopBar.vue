@@ -4,7 +4,12 @@
       <SearchBar @search="onSearch" />
     </div>
     <div class="topbar-actions">
-      <button class="btn btn-primary" @click="triggerScan">🔍 Scan Library</button>
+      <button class="btn btn-secondary" :disabled="tagging" @click="triggerAutoTag">
+        {{ tagging ? 'Queuing…' : 'Auto-Tag' }}
+      </button>
+      <button class="btn btn-primary" :disabled="scanning" @click="triggerScan">
+        {{ scanning ? 'Scanning…' : 'Scan Library' }}
+      </button>
       <div class="user-info" v-if="authStore.user">
         <span class="user-name">
           {{ authStore.user.display_name || authStore.user.username }}
@@ -17,22 +22,43 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import SearchBar from '@/components/Search/SearchBar.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 import { useAuthStore } from '@/stores/authStore'
+import { autotagApi } from '@/api/autotagApi'
 import { libraryApi } from '@/api/libraryApi'
 
-const store = useMediaStore()
+const mediaStore = useMediaStore()
 const authStore = useAuthStore()
 const router = useRouter()
+const scanning = ref(false)
+const tagging = ref(false)
 
 function onSearch(q: string) {
-  store.setFilter('q', q)
+  mediaStore.setFilter('q', q)
 }
 
 async function triggerScan() {
-  await libraryApi.scan()
+  if (scanning.value) return
+  scanning.value = true
+  try {
+    await libraryApi.scan()
+    await mediaStore.fetchList()
+  } finally {
+    scanning.value = false
+  }
+}
+
+async function triggerAutoTag() {
+  if (tagging.value) return
+  tagging.value = true
+  try {
+    await autotagApi.autotagBatch('all_untagged')
+  } finally {
+    tagging.value = false
+  }
 }
 
 function onLogout() {
@@ -94,5 +120,20 @@ function onLogout() {
 .btn-ghost:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    height: auto;
+    min-height: var(--topbar-height);
+    align-items: flex-start;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 </style>

@@ -6,6 +6,11 @@ export interface Collection {
   user_id: string
   name: string
   description: string
+  auto_type?: '' | 'video' | 'image' | 'manga' | 'comic' | 'doujinshi'
+  auto_title?: string
+  auto_tag?: string
+  auto_favorite?: boolean | null
+  auto_min_rating?: number | null
   created_at: string
   updated_at: string
   item_count: number
@@ -19,10 +24,10 @@ export const collectionApi = {
   get: (id: string) =>
     client.get<ApiResponse<Collection>>(`/collections/${id}`).then((r) => r.data),
 
-  create: (body: { name: string; description?: string }) =>
+  create: (body: { name: string; description?: string; auto_type?: string; auto_title?: string; auto_tag?: string; auto_favorite?: boolean | null; auto_min_rating?: number | null }) =>
     client.post<ApiResponse<Collection>>('/collections', body).then((r) => r.data),
 
-  update: (id: string, body: { name?: string; description?: string }) =>
+  update: (id: string, body: { name?: string; description?: string; auto_type?: string; auto_title?: string; auto_tag?: string; auto_favorite?: boolean | null; auto_min_rating?: number | null }) =>
     client.patch<ApiResponse<Collection>>(`/collections/${id}`, body).then((r) => r.data),
 
   remove: (id: string) =>

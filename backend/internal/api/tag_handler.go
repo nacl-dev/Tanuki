@@ -14,6 +14,17 @@ type TagHandler struct {
 	db *database.DB
 }
 
+const tagUsageSelect = `
+	SELECT
+		t.id,
+		t.name,
+		t.category,
+		COALESCE(COUNT(m.id), 0) AS usage_count
+	FROM tags t
+	LEFT JOIN media_tags mt ON mt.tag_id = t.id
+	LEFT JOIN media m ON m.id = mt.media_id AND m.deleted_at IS NULL
+`
+
 // List returns all tags, optionally filtered by category.
 // GET /api/tags?category=artist
 func (h *TagHandler) List(c *gin.Context) {
@@ -23,9 +34,16 @@ func (h *TagHandler) List(c *gin.Context) {
 	var err error
 
 	if category != "" {
-		err = h.db.Select(&tags, `SELECT * FROM tags WHERE category = $1 ORDER BY usage_count DESC, name ASC`, category)
+		err = h.db.Select(&tags, tagUsageSelect+`
+			WHERE t.category = $1
+			GROUP BY t.id, t.name, t.category
+			ORDER BY usage_count DESC, t.name ASC
+		`, category)
 	} else {
-		err = h.db.Select(&tags, `SELECT * FROM tags ORDER BY usage_count DESC, name ASC`)
+		err = h.db.Select(&tags, tagUsageSelect+`
+			GROUP BY t.id, t.name, t.category
+			ORDER BY usage_count DESC, t.name ASC
+		`)
 	}
 
 	if err != nil {
@@ -47,9 +65,10 @@ func (h *TagHandler) Search(c *gin.Context) {
 
 	var tags []models.Tag
 	if err := h.db.Select(&tags, `
-		SELECT * FROM tags
-		WHERE name ILIKE $1
-		ORDER BY usage_count DESC, name ASC
+	`+tagUsageSelect+`
+		WHERE t.name ILIKE $1
+		GROUP BY t.id, t.name, t.category
+		ORDER BY usage_count DESC, t.name ASC
 		LIMIT 20
 	`, q+"%"); err != nil {
 		respondError(c, http.StatusInternalServerError, "search tags: "+err.Error())
@@ -63,7 +82,7 @@ func (h *TagHandler) Search(c *gin.Context) {
 // POST /api/tags
 func (h *TagHandler) Create(c *gin.Context) {
 	var body struct {
-		Name     string            `json:"name"     binding:"required"`
+		Name     string             `json:"name"     binding:"required"`
 		Category models.TagCategory `json:"category" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -82,7 +101,10 @@ func (h *TagHandler) Create(c *gin.Context) {
 	}
 
 	var tag models.Tag
-	if err := h.db.Get(&tag, `SELECT * FROM tags WHERE name = $1`, body.Name); err != nil {
+	if err := h.db.Get(&tag, tagUsageSelect+`
+		WHERE t.name = $1
+		GROUP BY t.id, t.name, t.category
+	`, body.Name); err != nil {
 		respondError(c, http.StatusInternalServerError, "fetch tag: "+err.Error())
 		return
 	}
@@ -115,7 +137,10 @@ func (h *TagHandler) Update(c *gin.Context) {
 	}
 
 	var tag models.Tag
-	if err := h.db.Get(&tag, `SELECT * FROM tags WHERE id = $1`, id); err != nil {
+	if err := h.db.Get(&tag, tagUsageSelect+`
+		WHERE t.id = $1
+		GROUP BY t.id, t.name, t.category
+	`, id); err != nil {
 		respondError(c, http.StatusNotFound, "tag not found")
 		return
 	}

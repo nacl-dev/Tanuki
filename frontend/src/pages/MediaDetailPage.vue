@@ -46,6 +46,7 @@
           v-if="media.type === 'video'"
           :src="mediaAssetUrl(media.id, 'file')"
           :poster="thumbnailAssetUrl"
+          :initialTime="media.read_progress || 0"
           @timeupdate="onVideoTimeUpdate"
           @ended="onVideoEnded"
         />
@@ -627,6 +628,7 @@ let videoProgressTimer: ReturnType<typeof setTimeout> | null = null
 
 function onVideoTimeUpdate(time: number) {
   if (!media.value) return
+  media.value = { ...media.value, read_progress: Math.floor(time), read_total: 0 }
   if (videoProgressTimer) clearTimeout(videoProgressTimer)
   videoProgressTimer = setTimeout(async () => {
     // read_total is not used for videos (0 = not applicable)
@@ -636,6 +638,8 @@ function onVideoTimeUpdate(time: number) {
 
 function onVideoEnded() {
   if (!media.value) return
+  if (videoProgressTimer) clearTimeout(videoProgressTimer)
+  media.value = { ...media.value, read_progress: 0, read_total: 0 }
   mediaStore.saveProgress(media.value.id, 0, 0)
 }
 

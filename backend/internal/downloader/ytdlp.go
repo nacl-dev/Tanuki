@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -52,6 +55,7 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 	if dest == "" {
 		dest = "/downloads"
 	}
+	meta, _ := e.extractMetadata(job.URL)
 
 	args := []string{
 		"--output", dest + "/%(title)s.%(ext)s",
@@ -102,11 +106,29 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 		return fmt.Errorf("yt-dlp: %w", err)
 	}
 
+	if meta != nil {
+		if outputPath, err := detectLatestDownloadedFile(dest); err == nil {
+			sidecar := models.ImportMetadata{
+				Title:     meta.Title,
+				SourceURL: firstNonEmpty(strings.TrimSpace(meta.Extra["source_url"]), job.URL),
+				PosterURL: strings.TrimSpace(meta.Extra["poster_url"]),
+				Tags:      meta.Tags,
+			}
+			if err := writeImportMetadata(outputPath, sidecar); err != nil {
+				e.log.Warn("yt-dlp: write metadata sidecar failed", zap.String("path", outputPath), zap.Error(err))
+			}
+		}
+	}
+
 	return nil
 }
 
 // FetchMetadata uses yt-dlp --dump-json to retrieve video metadata.
 func (e *YtDlpEngine) FetchMetadata(url string) (*SourceMetadata, error) {
+	return e.extractMetadata(url)
+}
+
+func (e *YtDlpEngine) extractMetadata(url string) (*SourceMetadata, error) {
 	args := []string{"--dump-json", "--no-playlist"}
 	if e.hasConfig() {
 		args = append(args, "--config-location", e.configPath)
@@ -137,6 +159,13 @@ func (e *YtDlpEngine) FetchMetadata(url string) (*SourceMetadata, error) {
 			}
 		}
 	}
+	meta.Extra = map[string]string{}
+	if webpageURL, ok := obj["webpage_url"].(string); ok {
+		meta.Extra["source_url"] = webpageURL
+	}
+	if thumbnail, ok := obj["thumbnail"].(string); ok {
+		meta.Extra["poster_url"] = thumbnail
+	}
 
 	meta.TotalFiles = 1
 	return meta, nil
@@ -163,9 +192,9 @@ func parseYtDlpProgress(line string) (int64, int64, bool) {
 		return 0, 0, false
 	}
 
-	downloaded, _ := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
-	estimated, _ := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
-	total, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
+	downloaded := parseProgressNumber(parts[0])
+	estimated := parseProgressNumber(parts[1])
+	total := parseProgressNumber(parts[2])
 	if total <= 0 {
 		total = estimated
 	}
@@ -173,4 +202,54 @@ func parseYtDlpProgress(line string) (int64, int64, bool) {
 		downloaded = 0
 	}
 	return downloaded, total, true
+}
+
+func parseProgressNumber(raw string) int64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "NA") {
+		return 0
+	}
+
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0
+	}
+	if value < 0 {
+		return 0
+	}
+	return int64(value)
+}
+
+func detectLatestDownloadedFile(dir string) (string, error) {
+	var latestPath string
+	var latestTime int64
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		lower := strings.ToLower(path)
+		if strings.HasSuffix(lower, ".info.json") || strings.HasSuffix(lower, ".tanuki.json") || strings.HasSuffix(lower, ".part") {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.ModTime().UnixNano() > latestTime {
+			latestTime = info.ModTime().UnixNano()
+			latestPath = path
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if latestPath == "" {
+		return "", fmt.Errorf("no downloaded media file found in %s", dir)
+	}
+	return latestPath, nil
 }
