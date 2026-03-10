@@ -19,6 +19,7 @@ import (
 type GalleryDLEngine struct {
 	configPath string
 	log        *zap.Logger
+	progress   func(id string, downloaded, total int64, files, totalFiles int)
 }
 
 type logBuffer struct {
@@ -41,6 +42,10 @@ func (b *logBuffer) Joined() string {
 // NewGalleryDLEngine creates a GalleryDLEngine using an optional config file.
 func NewGalleryDLEngine(configPath string, log *zap.Logger) *GalleryDLEngine {
 	return &GalleryDLEngine{configPath: configPath, log: log}
+}
+
+func (e *GalleryDLEngine) SetProgressUpdater(fn func(id string, downloaded, total int64, files, totalFiles int)) {
+	e.progress = fn
 }
 
 // CanHandle returns true for any URL that gallery-dl is likely to support.
@@ -103,6 +108,9 @@ func (e *GalleryDLEngine) Download(ctx context.Context, job *models.DownloadJob)
 		line := scanner.Text()
 		if filepath.IsAbs(line) || strings.HasPrefix(line, dest) {
 			count++
+			if e.progress != nil {
+				e.progress(job.ID, 0, 0, count, job.TotalFiles)
+			}
 			e.log.Debug("gallery-dl: downloaded", zap.String("file", line), zap.Int("count", count))
 		}
 	}

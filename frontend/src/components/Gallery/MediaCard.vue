@@ -1,14 +1,31 @@
 <template>
-  <RouterLink :to="`/media/${media.id}`" class="media-card">
+  <RouterLink
+    :to="`/media/${media.id}`"
+    class="media-card"
+    @mouseenter="onHoverStart"
+    @mouseleave="onHoverEnd"
+  >
     <div class="media-card__thumb">
+      <video
+        v-if="showVideoPreview"
+        ref="previewVideo"
+        class="media-card__preview"
+        :src="mediaAssetUrl(media.id, 'file')"
+        :poster="thumbError ? undefined : thumbnailUrl"
+        muted
+        loop
+        playsinline
+        preload="metadata"
+        @loadedmetadata="onPreviewLoaded"
+      />
       <img
-        v-if="!thumbError"
-        :src="mediaAssetUrl(media.id, 'thumbnail')"
+        v-if="!thumbError && !showVideoPreview"
+        :src="thumbnailUrl"
         :alt="media.title"
         loading="lazy"
         @error="onThumbError"
       />
-      <div v-if="thumbError" class="media-card__placeholder">
+      <div v-if="thumbError && !showVideoPreview" class="media-card__placeholder">
         <span>{{ typeIcon }}</span>
       </div>
 
@@ -39,9 +56,43 @@ import { useMediaStore } from '@/stores/mediaStore'
 const props = defineProps<{ media: Media }>()
 const store = useMediaStore()
 const thumbError = ref(false)
+const hovering = ref(false)
+const previewVideo = ref<HTMLVideoElement | null>(null)
+
+const showVideoPreview = computed(() => props.media.type === 'video' && hovering.value)
+const thumbnailUrl = computed(() => mediaAssetUrl(props.media.id, 'thumbnail', props.media.updated_at))
 
 function onThumbError() {
   thumbError.value = true
+}
+
+function onHoverStart() {
+  if (props.media.type !== 'video') return
+  hovering.value = true
+  requestAnimationFrame(() => {
+    previewVideo.value?.play().catch(() => {})
+  })
+}
+
+function onHoverEnd() {
+  if (props.media.type !== 'video') return
+  const video = previewVideo.value
+  if (video) {
+    video.pause()
+    video.currentTime = 0
+  }
+  hovering.value = false
+}
+
+function onPreviewLoaded() {
+  const video = previewVideo.value
+  if (!video) return
+
+  const duration = Number.isFinite(video.duration) ? video.duration : 0
+  if (duration <= 0) return
+
+  const target = Math.min(30, Math.max(20, duration * 0.2))
+  video.currentTime = Math.min(target, Math.max(0, duration - 1))
 }
 
 const typeIcon = computed(() => {
@@ -76,7 +127,8 @@ const typeIcon = computed(() => {
   overflow: hidden;
 }
 
-.media-card__thumb img {
+.media-card__thumb img,
+.media-card__preview {
   width: 100%;
   height: 100%;
   object-fit: cover;

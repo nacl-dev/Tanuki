@@ -45,6 +45,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/collections',
+      name: 'collections',
+      component: () => import('@/pages/CollectionsPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/duplicates',
       name: 'duplicates',
       component: () => import('@/pages/DuplicatesPage.vue'),

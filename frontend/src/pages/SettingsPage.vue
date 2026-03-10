@@ -55,10 +55,10 @@
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
+import { libraryApi } from '@/api/libraryApi'
 
 async function scanNow() {
-  await axios.post('/api/library/scan')
+  await libraryApi.scan()
 }
 </script>
 

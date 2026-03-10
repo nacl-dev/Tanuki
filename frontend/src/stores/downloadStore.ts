@@ -13,7 +13,7 @@ export const useDownloadStore = defineStore('download', () => {
     error.value = null
     try {
       const res = await downloadApi.list(status)
-      jobs.value = res.data
+      jobs.value = res.data ?? []
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -23,7 +23,7 @@ export const useDownloadStore = defineStore('download', () => {
 
   async function fetchSchedules() {
     const res = await downloadApi.listSchedules()
-    schedules.value = res.data
+    schedules.value = res.data ?? []
   }
 
   async function createSchedule(input: Omit<DownloadSchedule, 'id' | 'created_at' | 'last_run' | 'next_run'>) {

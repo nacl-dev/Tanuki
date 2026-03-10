@@ -27,7 +27,7 @@ export const useMediaStore = defineStore('media', () => {
     error.value = null
     try {
       const res = await mediaApi.list(filters)
-      items.value = res.data
+      items.value = res.data ?? []
       total.value = res.meta?.total ?? 0
     } catch (e: any) {
       error.value = e.message

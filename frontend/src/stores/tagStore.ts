@@ -12,7 +12,7 @@ export const useTagStore = defineStore('tag', () => {
     loading.value = true
     try {
       const res = await tagApi.list(category)
-      tags.value = res.data
+      tags.value = res.data ?? []
     } finally {
       loading.value = false
     }
@@ -24,8 +24,9 @@ export const useTagStore = defineStore('tag', () => {
     if (cached) return cached
 
     const res = await tagApi.search(q)
-    autocompleteCache.value.set(q, res.data)
-    return res.data
+    const items = res.data ?? []
+    autocompleteCache.value.set(q, items)
+    return items
   }
 
   async function create(name: string, category: Tag['category']) {

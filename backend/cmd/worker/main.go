@@ -49,7 +49,7 @@ func main() {
 		cancel()
 	}()
 
-	sc := scanner.New(db, cfg.MediaPath, log)
+	sc := scanner.New(db, cfg.MediaPath, cfg.ThumbnailsPath, log)
 	gen := thumbnails.New(cfg.ThumbnailsPath, log)
 
 	// Services for v0.4 / v0.5

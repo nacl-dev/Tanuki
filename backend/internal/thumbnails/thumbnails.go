@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/jpeg"
 	_ "image/gif"
+	"image/jpeg"
 	_ "image/png"
 	"math"
 	"os"
@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	maxWidth  = 300
-	maxHeight = 300
+	maxWidth    = 300
+	maxHeight   = 300
 	jpegQuality = 85
 )
 

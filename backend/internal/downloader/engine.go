@@ -26,3 +26,8 @@ type Engine interface {
 	// FetchMetadata retrieves metadata from the remote source without downloading.
 	FetchMetadata(url string) (*SourceMetadata, error)
 }
+
+// ProgressAwareEngine can stream incremental progress updates back to the manager.
+type ProgressAwareEngine interface {
+	SetProgressUpdater(func(id string, downloaded, total int64, files, totalFiles int))
+}

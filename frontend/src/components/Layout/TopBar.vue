@@ -21,7 +21,7 @@ import { useRouter } from 'vue-router'
 import SearchBar from '@/components/Search/SearchBar.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 import { useAuthStore } from '@/stores/authStore'
-import axios from 'axios'
+import { libraryApi } from '@/api/libraryApi'
 
 const store = useMediaStore()
 const authStore = useAuthStore()
@@ -32,7 +32,7 @@ function onSearch(q: string) {
 }
 
 async function triggerScan() {
-  await axios.post('/api/library/scan')
+  await libraryApi.scan()
 }
 
 function onLogout() {

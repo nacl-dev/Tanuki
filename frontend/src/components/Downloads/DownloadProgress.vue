@@ -12,6 +12,22 @@
       <span class="progress-pct">{{ job.progress.toFixed(1) }}%</span>
     </div>
 
+    <div class="dl-item__meta">
+      <span v-if="job.total_bytes > 0">
+        {{ formatBytes(job.downloaded_bytes) }} / {{ formatBytes(job.total_bytes) }}
+      </span>
+      <span v-else-if="job.downloaded_bytes > 0">
+        {{ formatBytes(job.downloaded_bytes) }}
+      </span>
+      <span v-if="job.total_files > 0">
+        {{ job.downloaded_files }} / {{ job.total_files }} files
+      </span>
+      <span v-else-if="job.downloaded_files > 0">
+        {{ job.downloaded_files }} files
+      </span>
+      <span v-if="job.target_directory">{{ job.target_directory }}</span>
+    </div>
+
     <div v-if="job.error_message" class="dl-item__error">{{ job.error_message }}</div>
 
     <div class="dl-item__actions">
@@ -41,6 +57,13 @@ const shortUrl = computed(() => {
 
 const isActive = computed(() => ['queued', 'downloading', 'processing'].includes(props.job.status))
 const canCancel = computed(() => ['queued', 'downloading', 'paused'].includes(props.job.status))
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  if (value < 1024 ** 3) return `${(value / 1024 / 1024).toFixed(1)} MB`
+  return `${(value / 1024 ** 3).toFixed(2)} GB`
+}
 </script>
 
 <style scoped>
@@ -66,6 +89,13 @@ const canCancel = computed(() => ['queued', 'downloading', 'paused'].includes(pr
 }
 
 .dl-item__error { font-size: 12px; color: var(--danger); }
+.dl-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 .dl-item__progress { display: flex; align-items: center; gap: 10px; }
 

@@ -3,11 +3,17 @@ package downloader
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/scanner"
+	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"go.uber.org/zap"
 )
 
@@ -19,18 +25,28 @@ type Manager struct {
 	rateDelay    time.Duration
 	log          *zap.Logger
 	downloadsDir string
+	mediaPath    string
+	thumbPath    string
 }
 
 // NewManager creates a Manager with the given engines.
-func NewManager(db *database.DB, engines []Engine, maxWorkers int, rateDelay time.Duration, downloadsDir string, log *zap.Logger) *Manager {
-	return &Manager{
+func NewManager(db *database.DB, engines []Engine, maxWorkers int, rateDelay time.Duration, downloadsDir, mediaPath, thumbPath string, log *zap.Logger) *Manager {
+	m := &Manager{
 		db:           db,
 		engines:      engines,
 		maxWorkers:   maxWorkers,
 		rateDelay:    rateDelay,
 		log:          log,
 		downloadsDir: downloadsDir,
+		mediaPath:    mediaPath,
+		thumbPath:    thumbPath,
 	}
+	for _, engine := range engines {
+		if aware, ok := engine.(ProgressAwareEngine); ok {
+			aware.SetProgressUpdater(m.UpdateProgress)
+		}
+	}
+	return m
 }
 
 // Run starts the download processing loop. It blocks until ctx is cancelled.
@@ -123,6 +139,19 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 	// Apply per-source rate limit delay.
 	time.Sleep(m.rateDelay)
 
+	m.prefetchMetadata(job.ID, job.URL, engines)
+
+	targetRoot := job.TargetDirectory
+	stagingDir := filepath.Join(targetRoot, ".tanuki-job-"+job.ID)
+	if err := removePathIfExists(stagingDir); err != nil {
+		m.log.Warn("download: cleanup stale staging dir", zap.String("path", stagingDir), zap.Error(err))
+	}
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		m.setStatus(job.ID, models.DownloadStatusFailed, "create staging dir: "+err.Error())
+		return
+	}
+	job.TargetDirectory = stagingDir
+
 	var lastErr error
 	for _, engine := range engines {
 		if err := engine.Download(ctx, &job); err != nil {
@@ -138,6 +167,24 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 			return
 		}
 
+		movedPaths, err := organizeDownloadedFiles(stagingDir, targetRoot)
+		if err != nil {
+			m.log.Error("download: organize failed", zap.String("id", job.ID), zap.Error(err))
+			m.setStatus(job.ID, models.DownloadStatusFailed, "organize download: "+err.Error())
+			return
+		}
+		_ = os.RemoveAll(stagingDir)
+		if len(movedPaths) == 0 {
+			m.setStatus(job.ID, models.DownloadStatusFailed, "download completed but no supported media files were produced")
+			return
+		}
+		if len(movedPaths) > 0 {
+			m.UpdateProgress(job.ID, 1, 1, len(movedPaths), len(movedPaths))
+			if err := m.refreshLibrary(ctx, movedPaths); err != nil {
+				m.log.Warn("download: refresh library failed", zap.String("id", job.ID), zap.Error(err))
+			}
+		}
+
 		m.setStatus(job.ID, models.DownloadStatusCompleted, "")
 		m.db.Exec(`UPDATE download_jobs SET completed_at = NOW() WHERE id = $1`, job.ID) //nolint:errcheck
 		m.log.Info("download: completed", zap.String("id", job.ID))
@@ -148,6 +195,7 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 		lastErr = fmt.Errorf("no suitable download engine found")
 	}
 	m.log.Error("download: failed", zap.String("id", job.ID), zap.Error(lastErr))
+	_ = os.RemoveAll(stagingDir)
 	m.setStatus(job.ID, models.DownloadStatusFailed, lastErr.Error())
 	m.db.Exec(`UPDATE download_jobs SET retry_count = retry_count + 1 WHERE id = $1`, job.ID) //nolint:errcheck
 }
@@ -184,6 +232,8 @@ func (m *Manager) UpdateProgress(id string, downloaded, total int64, files, tota
 	var progress float64
 	if total > 0 {
 		progress = float64(downloaded) / float64(total) * 100
+	} else if totalFiles > 0 {
+		progress = float64(files) / float64(totalFiles) * 100
 	}
 
 	m.db.Exec(`
@@ -196,4 +246,69 @@ func (m *Manager) UpdateProgress(id string, downloaded, total int64, files, tota
 			updated_at       = NOW()
 		WHERE id = $1
 	`, id, downloaded, total, files, totalFiles, fmt.Sprintf("%.2f", progress)) //nolint:errcheck
+}
+
+func (m *Manager) prefetchMetadata(id, rawURL string, engines []Engine) {
+	for _, engine := range engines {
+		meta, err := engine.FetchMetadata(rawURL)
+		if err != nil || meta == nil {
+			continue
+		}
+		payload, err := json.Marshal(meta)
+		if err != nil {
+			return
+		}
+		totalFiles := meta.TotalFiles
+		m.db.Exec(`
+			UPDATE download_jobs SET source_metadata = $2, total_files = CASE WHEN total_files = 0 THEN $3 ELSE total_files END, updated_at = NOW()
+			WHERE id = $1
+		`, id, payload, totalFiles) //nolint:errcheck
+		return
+	}
+}
+
+func (m *Manager) refreshLibrary(ctx context.Context, movedPaths []string) error {
+	if strings.TrimSpace(m.mediaPath) == "" || len(movedPaths) == 0 {
+		return nil
+	}
+	for _, path := range movedPaths {
+		rel, err := filepath.Rel(m.mediaPath, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil
+		}
+	}
+
+	sc := scanner.New(m.db, m.mediaPath, m.thumbPath, m.log)
+	if err := sc.Run(ctx); err != nil {
+		return err
+	}
+	if strings.TrimSpace(m.thumbPath) == "" {
+		return nil
+	}
+	gen := thumbnails.New(m.thumbPath, m.log)
+	for _, path := range movedPaths {
+		var media models.Media
+		if err := m.db.GetContext(ctx, &media, `SELECT * FROM media WHERE file_path = $1 AND deleted_at IS NULL`, path); err != nil {
+			continue
+		}
+		if strings.TrimSpace(media.ThumbnailPath) != "" {
+			continue
+		}
+		thumbPath, err := gen.GenerateForMedia(ctx, &media)
+		if err != nil {
+			continue
+		}
+		m.db.Exec(`UPDATE media SET thumbnail_path = $1, updated_at = NOW() WHERE id = $2`, thumbPath, media.ID) //nolint:errcheck
+	}
+	return nil
+}
+
+func removePathIfExists(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

@@ -37,6 +37,7 @@ const router = useRouter()
 const navItems = [
   { name: 'library',    to: '/',           icon: '📚', label: 'Library'    },
   { name: 'downloads',  to: '/downloads',  icon: '⬇️',  label: 'Downloads'  },
+  { name: 'collections',to: '/collections',icon: '🗂️', label: 'Collections' },
   { name: 'tags',       to: '/tags',       icon: '🏷️',  label: 'Tags'       },
   { name: 'duplicates', to: '/duplicates', icon: '🔍',  label: 'Duplicates' },
   { name: 'plugins',    to: '/plugins',    icon: '🧩',  label: 'Plugins'    },

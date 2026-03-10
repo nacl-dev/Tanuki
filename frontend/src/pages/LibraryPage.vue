@@ -1,6 +1,72 @@
 <template>
   <div class="library-page">
     <aside class="filter-sidebar">
+      <div class="import-panel">
+        <h4>Library Intake</h4>
+        <p class="import-help">
+          Lege unorganisierte Dateien in den Root-Ordner <code>/inbox</code> und sortiere sie hier automatisch in die Bibliothek ein.
+        </p>
+        <div class="import-structure">
+          <strong>Target layout</strong>
+          <code>/Video/2D (Hentai)</code>
+          <code>/Video/3D (Real)/Studio</code>
+          <code>/Image/CG Sets</code>
+          <code>/Image/GIFs</code>
+          <code>/Image/Random</code>
+          <code>/Comics/Manga</code>
+          <code>/Comics/Doujins</code>
+        </div>
+        <input
+          v-model="organizePath"
+          class="import-input"
+          type="text"
+          placeholder="z. B. inbox/new oder inbox/studio-a"
+        />
+        <div class="import-actions">
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="organizing"
+            @click="previewLibrary('move')"
+          >
+            {{ organizing ? 'Analyzing…' : 'Preview Move' }}
+          </button>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="organizing"
+            @click="organizeLibrary('move')"
+          >
+            {{ organizing ? 'Organizing…' : 'Organize + Move' }}
+          </button>
+          <button
+            class="btn btn-ghost btn-sm"
+            :disabled="organizing"
+            @click="organizeLibrary('copy')"
+          >
+            Copy Instead
+          </button>
+        </div>
+        <div v-if="organizePreview" class="preview-panel">
+          <div class="preview-summary">
+            <strong>{{ organizePreview.moved }}</strong> erkannt,
+            <strong>{{ organizePreview.skipped }}</strong> übersprungen
+          </div>
+          <div class="preview-list">
+            <div
+              v-for="item in organizePreview.items?.slice(0, 8)"
+              :key="`${item.source_path}-${item.target_path}`"
+              class="preview-item"
+            >
+              <div class="preview-source">{{ item.source_path }}</div>
+              <div v-if="item.skipped" class="preview-skip">Skip: {{ item.reason }}</div>
+              <div v-else class="preview-target">{{ item.media_type }} → {{ item.target_path }}</div>
+            </div>
+          </div>
+          <div v-if="(organizePreview.items?.length ?? 0) > 8" class="preview-more">
+            … und {{ (organizePreview.items?.length ?? 0) - 8 }} weitere
+          </div>
+        </div>
+      </div>
+
       <h4>Type</h4>
       <label v-for="t in types" :key="t.value" class="filter-option">
         <input
@@ -81,6 +147,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/mediaStore'
 import { autotagApi } from '@/api/autotagApi'
+import { libraryApi, type OrganizeLibraryResult } from '@/api/libraryApi'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
 import SearchBar from '@/components/Search/SearchBar.vue'
 
@@ -88,6 +155,49 @@ const store = useMediaStore()
 const route = useRoute()
 
 const batchTagging = ref(false)
+const organizing = ref(false)
+const organizePath = ref('inbox')
+const organizePreview = ref<OrganizeLibraryResult | null>(null)
+
+async function organizeLibrary(mode: 'move' | 'copy') {
+  const sourcePath = organizePath.value.trim()
+  if (!sourcePath) {
+    alert('Bitte einen Unterordner innerhalb von /inbox angeben.')
+    return
+  }
+
+  organizing.value = true
+  try {
+    const res = await libraryApi.organize(sourcePath, mode, false)
+    organizePreview.value = null
+    await store.fetchList()
+    alert(`Organisiert: ${res.data.moved} Dateien, übersprungen: ${res.data.skipped}.`)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Library organize failed'
+    alert(msg)
+  } finally {
+    organizing.value = false
+  }
+}
+
+async function previewLibrary(mode: 'move' | 'copy') {
+  const sourcePath = organizePath.value.trim()
+  if (!sourcePath) {
+    alert('Bitte einen Unterordner innerhalb von /inbox angeben.')
+    return
+  }
+
+  organizing.value = true
+  try {
+    const res = await libraryApi.organize(sourcePath, mode, true)
+    organizePreview.value = res.data
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Library preview failed'
+    alert(msg)
+  } finally {
+    organizing.value = false
+  }
+}
 
 async function autoTagAll() {
   if (batchTagging.value) return
@@ -157,6 +267,109 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+
+.import-help {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.import-help code {
+  font-size: 11px;
+}
+
+.import-structure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.import-structure strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.import-structure code {
+  font-size: 11px;
+}
+
+.import-input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.import-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.preview-summary,
+.preview-more {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview-item {
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+
+.preview-source,
+.preview-target,
+.preview-skip {
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.preview-source {
+  color: var(--text-primary);
+}
+
+.preview-target {
+  color: var(--text-muted);
+}
+
+.preview-skip {
+  color: #f59e0b;
 }
 
 .filter-sidebar h4 {

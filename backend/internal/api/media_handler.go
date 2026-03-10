@@ -2,8 +2,16 @@ package api
 
 import (
 	"archive/zip"
+	"bytes"
+	"database/sql"
+	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -12,15 +20,21 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/thumbnails"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 )
 
 // MediaHandler handles CRUD operations for media items.
 type MediaHandler struct {
-	db *database.DB
+	db        *database.DB
+	thumbPath string
 }
 
 // List returns a paginated list of media items with optional filtering.
@@ -65,7 +79,15 @@ func (h *MediaHandler) List(c *gin.Context) {
 		argIdx++
 	}
 	if q.Q != "" {
-		whereClause += ` AND m.title ILIKE $` + itoa(argIdx)
+		whereClause += ` AND (
+			m.title ILIKE $` + itoa(argIdx) + `
+			OR m.id IN (
+				SELECT mt.media_id
+				FROM media_tags mt
+				JOIN tags t ON t.id = mt.tag_id
+				WHERE t.name ILIKE $` + itoa(argIdx) + `
+			)
+		)`
 		args = append(args, "%"+q.Q+"%")
 		argIdx++
 	}
@@ -81,7 +103,12 @@ func (h *MediaHandler) List(c *gin.Context) {
 	}
 	// Single tag filter.
 	if q.Tag != "" {
-		whereClause += ` AND m.id IN (SELECT mt.media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = $` + itoa(argIdx) + `)`
+		whereClause += ` AND m.id IN (
+			SELECT mt.media_id
+			FROM media_tags mt
+			JOIN tags t ON t.id = mt.tag_id
+			WHERE LOWER(t.name) = LOWER($` + itoa(argIdx) + `)
+		)`
 		args = append(args, q.Tag)
 		argIdx++
 	}
@@ -91,7 +118,12 @@ func (h *MediaHandler) List(c *gin.Context) {
 			if tag == "" {
 				continue
 			}
-			whereClause += ` AND m.id IN (SELECT mt.media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = $` + itoa(argIdx) + `)`
+			whereClause += ` AND m.id IN (
+				SELECT mt.media_id
+				FROM media_tags mt
+				JOIN tags t ON t.id = mt.tag_id
+				WHERE LOWER(t.name) = LOWER($` + itoa(argIdx) + `)
+			)`
 			args = append(args, tag)
 			argIdx++
 		}
@@ -166,17 +198,32 @@ func (h *MediaHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var body struct {
-		Title        *string `json:"title"`
-		Rating       *int    `json:"rating"`
-		Favorite     *bool   `json:"favorite"`
-		Language     *string `json:"language"`
-		SourceURL    *string `json:"source_url"`
-		ReadProgress *int    `json:"read_progress"`
-		ReadTotal    *int    `json:"read_total"`
+		Title        *string  `json:"title"`
+		Rating       *int     `json:"rating"`
+		Favorite     *bool    `json:"favorite"`
+		Language     *string  `json:"language"`
+		SourceURL    *string  `json:"source_url"`
+		CreatedAt    *string  `json:"created_at"`
+		TagNames     []string `json:"tag_names"`
+		ReadProgress *int     `json:"read_progress"`
+		ReadTotal    *int     `json:"read_total"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	var createdAt any = nil
+	if body.CreatedAt != nil {
+		parsed, err := time.Parse(time.RFC3339, *body.CreatedAt)
+		if err != nil {
+			parsed, err = time.Parse("2006-01-02", *body.CreatedAt)
+			if err != nil {
+				respondError(c, http.StatusBadRequest, "created_at must be ISO date or RFC3339")
+				return
+			}
+		}
+		createdAt = parsed
 	}
 
 	_, err := h.db.Exec(`
@@ -186,15 +233,23 @@ func (h *MediaHandler) Update(c *gin.Context) {
 			favorite      = COALESCE($4, favorite),
 			language      = COALESCE($5, language),
 			source_url    = COALESCE($6, source_url),
-			read_progress = COALESCE($7, read_progress),
-			read_total    = COALESCE($8, read_total),
+			created_at    = COALESCE($7, created_at),
+			read_progress = COALESCE($8, read_progress),
+			read_total    = COALESCE($9, read_total),
 			updated_at    = NOW()
 		WHERE id = $1 AND deleted_at IS NULL
 	`, id, body.Title, body.Rating, body.Favorite, body.Language, body.SourceURL,
-		body.ReadProgress, body.ReadTotal)
+		createdAt, body.ReadProgress, body.ReadTotal)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "update media: "+err.Error())
 		return
+	}
+
+	if body.TagNames != nil {
+		if err := h.replaceMediaTags(id, body.TagNames); err != nil {
+			respondError(c, http.StatusInternalServerError, "update media tags: "+err.Error())
+			return
+		}
 	}
 
 	h.Get(c) // Return the updated record.
@@ -204,6 +259,28 @@ func (h *MediaHandler) Update(c *gin.Context) {
 // DELETE /api/media/:id
 func (h *MediaHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
+
+	var body struct {
+		DeleteFile bool `json:"delete_file"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		respondError(c, http.StatusNotFound, "media not found")
+		return
+	}
+
+	if body.DeleteFile {
+		if err := removeIfExists(item.FilePath); err != nil {
+			respondError(c, http.StatusInternalServerError, "delete file: "+err.Error())
+			return
+		}
+		if err := removeIfExists(item.ThumbnailPath); err != nil {
+			respondError(c, http.StatusInternalServerError, "delete thumbnail: "+err.Error())
+			return
+		}
+	}
 
 	if _, err := h.db.Exec(`UPDATE media SET deleted_at = NOW() WHERE id = $1`, id); err != nil {
 		respondError(c, http.StatusInternalServerError, "delete media: "+err.Error())
@@ -244,18 +321,136 @@ func (h *MediaHandler) ServeThumbnail(c *gin.Context) {
 		return
 	}
 
+	if item.ThumbnailPath == "" && strings.TrimSpace(h.thumbPath) != "" {
+		gen := thumbnails.New(h.thumbPath, nil)
+		if thumbPath, genErr := gen.GenerateForMedia(c.Request.Context(), &item); genErr == nil {
+			item.ThumbnailPath = thumbPath
+			_, _ = h.db.Exec(`
+				UPDATE media
+				SET thumbnail_path = $2, updated_at = NOW()
+				WHERE id = $1 AND deleted_at IS NULL
+			`, item.ID, thumbPath)
+		}
+	}
+
 	if item.ThumbnailPath == "" {
 		c.Status(http.StatusNotFound)
 		return
 	}
 
 	if _, err := os.Stat(item.ThumbnailPath); os.IsNotExist(err) {
-		c.Status(http.StatusNotFound)
-		return
+		if strings.TrimSpace(h.thumbPath) != "" {
+			gen := thumbnails.New(h.thumbPath, nil)
+			if thumbPath, genErr := gen.GenerateForMedia(c.Request.Context(), &item); genErr == nil {
+				item.ThumbnailPath = thumbPath
+				_, _ = h.db.Exec(`
+					UPDATE media
+					SET thumbnail_path = $2, updated_at = NOW()
+					WHERE id = $1 AND deleted_at IS NULL
+				`, item.ID, thumbPath)
+			}
+		}
+		if _, err := os.Stat(item.ThumbnailPath); os.IsNotExist(err) {
+			c.Status(http.StatusNotFound)
+			return
+		}
 	}
 
 	c.Header("Cache-Control", "public, max-age=86400")
 	c.File(item.ThumbnailPath)
+}
+
+// UploadThumbnail stores a custom thumbnail uploaded by the user.
+// POST /api/media/:id/thumbnail/upload
+func (h *MediaHandler) UploadThumbnail(c *gin.Context) {
+	id := c.Param("id")
+
+	item, ok := h.loadMediaForThumbnail(c, id)
+	if !ok {
+		return
+	}
+
+	file, err := c.FormFile("thumbnail")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "missing thumbnail file")
+		return
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "open thumbnail upload: "+err.Error())
+		return
+	}
+	defer src.Close()
+
+	buf, err := io.ReadAll(io.LimitReader(src, 20<<20))
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "read thumbnail upload: "+err.Error())
+		return
+	}
+
+	if err := h.persistThumbnail(id, item.ThumbnailPath, buf); err != nil {
+		respondError(c, http.StatusBadRequest, "save thumbnail: "+err.Error())
+		return
+	}
+
+	h.Get(c)
+}
+
+// FetchThumbnail downloads a remote image and stores it as the custom thumbnail.
+// POST /api/media/:id/thumbnail/fetch
+func (h *MediaHandler) FetchThumbnail(c *gin.Context) {
+	id := c.Param("id")
+
+	item, ok := h.loadMediaForThumbnail(c, id)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	body.URL = strings.TrimSpace(body.URL)
+	if body.URL == "" {
+		respondError(c, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, body.URL, nil)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid url: "+err.Error())
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		respondError(c, http.StatusBadGateway, "download thumbnail: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respondError(c, http.StatusBadGateway, fmt.Sprintf("download thumbnail: remote returned %d", resp.StatusCode))
+		return
+	}
+
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
+	if err != nil {
+		respondError(c, http.StatusBadGateway, "read remote thumbnail: "+err.Error())
+		return
+	}
+
+	if err := h.persistThumbnail(id, item.ThumbnailPath, buf); err != nil {
+		respondError(c, http.StatusBadRequest, "save thumbnail: "+err.Error())
+		return
+	}
+
+	h.Get(c)
 }
 
 // splitTags splits a comma-separated tag string into individual tag names,
@@ -466,5 +661,167 @@ func serveCBRPage(c *gin.Context, path string, pageIdx int) error {
 	}
 	c.Header("Content-Type", ct)
 	c.Data(http.StatusOK, ct, out)
+	return nil
+}
+
+func (h *MediaHandler) replaceMediaTags(mediaID string, tagNames []string) error {
+	tx, err := h.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(`DELETE FROM media_tags WHERE media_id = $1`, mediaID); err != nil {
+		return err
+	}
+
+	seen := map[string]struct{}{}
+	for _, raw := range tagNames {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		tagID, err := ensureGeneralTag(tx, name)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO media_tags (media_id, tag_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, mediaID, tagID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+type sqlRunner interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Get(dest interface{}, query string, args ...interface{}) error
+}
+
+func ensureGeneralTag(db sqlRunner, name string) (string, error) {
+	var tag models.Tag
+	err := db.Get(&tag, `SELECT * FROM tags WHERE name = $1`, name)
+	if err == nil {
+		return tag.ID, nil
+	}
+
+	id := uuid.NewString()
+	if _, err := db.Exec(`
+		INSERT INTO tags (id, name, category, usage_count)
+		VALUES ($1, $2, $3, 0)
+		ON CONFLICT (name) DO NOTHING
+	`, id, name, models.TagCategoryGeneral); err != nil {
+		return "", err
+	}
+
+	if err := db.Get(&tag, `SELECT * FROM tags WHERE name = $1`, name); err != nil {
+		return "", err
+	}
+	return tag.ID, nil
+}
+
+func removeIfExists(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (h *MediaHandler) loadMediaForThumbnail(c *gin.Context, id string) (models.Media, bool) {
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		respondError(c, http.StatusNotFound, "media not found")
+		return models.Media{}, false
+	}
+	return item, true
+}
+
+func (h *MediaHandler) persistThumbnail(mediaID, previousPath string, raw []byte) error {
+	if strings.TrimSpace(h.thumbPath) == "" {
+		return errors.New("thumbnail path is not configured")
+	}
+	if len(raw) == 0 {
+		return errors.New("thumbnail is empty")
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("decode image: %w", err)
+	}
+
+	if err := os.MkdirAll(h.thumbPath, 0o755); err != nil {
+		return fmt.Errorf("create thumbnails dir: %w", err)
+	}
+
+	outPath := filepath.Join(h.thumbPath, mediaID+".jpg")
+	if err := saveResizedThumbnail(img, outPath); err != nil {
+		return err
+	}
+
+	if previousPath != "" && previousPath != outPath {
+		if err := removeIfExists(previousPath); err != nil {
+			return err
+		}
+	}
+
+	if _, err := h.db.Exec(`
+		UPDATE media
+		SET thumbnail_path = $2, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, mediaID, outPath); err != nil {
+		return fmt.Errorf("update media thumbnail: %w", err)
+	}
+
+	return nil
+}
+
+func saveResizedThumbnail(img image.Image, path string) error {
+	const maxWidth = 600
+	const maxHeight = 600
+	bounds := img.Bounds()
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
+	if srcW <= 0 || srcH <= 0 {
+		return errors.New("invalid image dimensions")
+	}
+
+	scale := math.Min(float64(maxWidth)/float64(srcW), float64(maxHeight)/float64(srcH))
+	if scale > 1 {
+		scale = 1
+	}
+
+	dstW := int(math.Round(float64(srcW) * scale))
+	dstH := int(math.Round(float64(srcH) * scale))
+	if dstW < 1 {
+		dstW = 1
+	}
+	if dstH < 1 {
+		dstH = 1
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	draw.BiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
+
+	out, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create thumbnail: %w", err)
+	}
+	defer out.Close()
+
+	if err := jpeg.Encode(out, dst, &jpeg.Options{Quality: 88}); err != nil {
+		return fmt.Errorf("encode thumbnail: %w", err)
+	}
 	return nil
 }

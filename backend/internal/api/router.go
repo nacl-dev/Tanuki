@@ -55,7 +55,8 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 		protected := apiGroup.Group("", auth.AuthRequired(cfg.JWTSecret))
 		{
 			// Media
-			mh := &MediaHandler{db: db}
+			mh := &MediaHandler{db: db, thumbPath: cfg.ThumbnailsPath}
+			ch := &CollectionHandler{db: db}
 			media := protected.Group("/media")
 			{
 				media.GET("", mh.List)
@@ -64,8 +65,11 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				media.DELETE("/:id", mh.Delete)
 				media.GET("/:id/file", mh.ServeFile)
 				media.GET("/:id/thumbnail", mh.ServeThumbnail)
+				media.POST("/:id/thumbnail/upload", mh.UploadThumbnail)
+				media.POST("/:id/thumbnail/fetch", mh.FetchThumbnail)
 				media.GET("/:id/pages", mh.ListPages)
 				media.GET("/:id/pages/:page", mh.ServePage)
+				media.GET("/:id/collections", ch.ListForMedia)
 
 				// Auto-tagging (v0.4)
 				ah := newAutoTagHandler(db, cfg, log)
@@ -76,6 +80,17 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				dh := newDedupHandler(db, cfg.DuplicateThreshold, log)
 				media.GET("/:id/duplicates", dh.GetDuplicates)
 				media.POST("/:id/phash", dh.ComputePHash)
+			}
+
+			collections := protected.Group("/collections")
+			{
+				collections.GET("", ch.List)
+				collections.POST("", ch.Create)
+				collections.GET("/:id", ch.Get)
+				collections.PATCH("/:id", ch.Update)
+				collections.DELETE("/:id", ch.Delete)
+				collections.POST("/:id/media", ch.AddMedia)
+				collections.DELETE("/:id/media/:mediaId", ch.RemoveMedia)
 			}
 
 			// Tags
@@ -112,8 +127,15 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			}
 
 			// Library
-			lh := &LibraryHandler{db: db, mediaPath: cfg.MediaPath, log: log}
+			lh := &LibraryHandler{
+				db:        db,
+				mediaPath: cfg.MediaPath,
+				thumbPath: cfg.ThumbnailsPath,
+				inboxPath: cfg.InboxPath,
+				log:       log,
+			}
 			protected.POST("/library/scan", lh.Scan)
+			protected.POST("/library/organize", lh.Organize)
 
 			// Duplicates (v0.5)
 			ddh := newDedupHandler(db, cfg.DuplicateThreshold, log)

@@ -42,6 +42,7 @@ func main() {
 	// (everything else), HTTP as fallback.
 	engines := []dl.Engine{
 		dl.NewYtDlpEngine(configDir+"/yt-dlp.conf", log),
+		dl.NewHentai0Engine(log),
 		dl.NewImageGalleryEngine(log),
 		dl.NewGalleryDLEngine(configDir+"/gallery-dl.conf", log),
 		dl.NewHTTPEngine(log),
@@ -53,6 +54,8 @@ func main() {
 		cfg.MaxConcurrentDownloads,
 		time.Duration(cfg.RateLimitDelay)*time.Millisecond,
 		cfg.DownloadsPath,
+		cfg.MediaPath,
+		cfg.ThumbnailsPath,
 		log,
 	)
 

@@ -16,6 +16,7 @@ services:
       - MEDIA_PATH=/media
       - THUMBNAILS_PATH=/thumbnails
       - DOWNLOADS_PATH=/media
+      - INBOX_PATH=/inbox
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PORT=8080
@@ -23,7 +24,8 @@ services:
       - PLUGINS_PATH=/app/config/plugins
       - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
     volumes:
-      - ./media:/media:ro
+      - ./media:/media
+      - ./inbox:/inbox
       - thumbnails:/thumbnails
       - downloads:/downloads
       - config:/app/config
@@ -52,11 +54,13 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://cache:6379}
       - MEDIA_PATH=/media
       - THUMBNAILS_PATH=/thumbnails
+      - INBOX_PATH=/inbox
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PLUGINS_PATH=/app/config/plugins
       - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
     volumes:
       - ./media:/media:ro
+      - ./inbox:/inbox:ro
       - thumbnails:/thumbnails
       - config:/app/config
       - plugins:/app/config/plugins

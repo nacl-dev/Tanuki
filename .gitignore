@@ -37,6 +37,7 @@ logs/
 /thumbnails/
 /downloads/
 /media/
+/inbox/
 *.pid
 
 # Secrets

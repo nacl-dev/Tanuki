@@ -19,6 +19,7 @@ type Config struct {
 	MediaPath      string
 	ThumbnailsPath string
 	DownloadsPath  string
+	InboxPath      string
 
 	// Security
 	SecretKey string
@@ -66,6 +67,7 @@ func Load() (*Config, error) {
 		MediaPath:              getEnv("MEDIA_PATH", "/media"),
 		ThumbnailsPath:         getEnv("THUMBNAILS_PATH", "/thumbnails"),
 		DownloadsPath:          getEnv("DOWNLOADS_PATH", "/downloads"),
+		InboxPath:              getEnv("INBOX_PATH", "/inbox"),
 		SecretKey:              getEnv("SECRET_KEY", "change-me"),
 		Port:                   getEnv("PORT", "8080"),
 		LogLevel:               getEnv("LOG_LEVEL", "info"),

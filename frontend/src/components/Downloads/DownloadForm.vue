@@ -13,11 +13,11 @@
     </div>
 
     <div class="form-field">
-      <label>Target Directory (optional)</label>
+      <label>Target Root (optional)</label>
       <input
         v-model="targetDir"
         type="text"
-        placeholder="/downloads/gallery"
+        placeholder="/media"
         class="input"
       />
     </div>

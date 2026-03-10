@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/nacl-dev/tanuki/internal/models"
@@ -17,11 +18,16 @@ import (
 type YtDlpEngine struct {
 	configPath string
 	log        *zap.Logger
+	progress   func(id string, downloaded, total int64, files, totalFiles int)
 }
 
 // NewYtDlpEngine creates a YtDlpEngine using an optional config file.
 func NewYtDlpEngine(configPath string, log *zap.Logger) *YtDlpEngine {
 	return &YtDlpEngine{configPath: configPath, log: log}
+}
+
+func (e *YtDlpEngine) SetProgressUpdater(fn func(id string, downloaded, total int64, files, totalFiles int)) {
+	e.progress = fn
 }
 
 // CanHandle returns true for video-hosting URLs that yt-dlp handles well.
@@ -53,6 +59,7 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 		"--no-playlist",
 		"--progress",
 		"--newline",
+		"--progress-template", "download:tanuki:%(progress.downloaded_bytes)s:%(progress.total_bytes_estimate)s:%(progress.total_bytes)s",
 	}
 	if e.hasConfig() {
 		args = append(args, "--config-location", e.configPath)
@@ -83,6 +90,11 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if e.progress != nil {
+			if downloaded, total, ok := parseYtDlpProgress(line); ok {
+				e.progress(job.ID, downloaded, total, 0, 1)
+			}
+		}
 		e.log.Debug("yt-dlp", zap.String("stdout", line))
 	}
 
@@ -126,6 +138,7 @@ func (e *YtDlpEngine) FetchMetadata(url string) (*SourceMetadata, error) {
 		}
 	}
 
+	meta.TotalFiles = 1
 	return meta, nil
 }
 
@@ -137,4 +150,27 @@ func (e *YtDlpEngine) hasConfig() bool {
 		return false
 	}
 	return true
+}
+
+func parseYtDlpProgress(line string) (int64, int64, bool) {
+	const prefix = "download:tanuki:"
+	if !strings.HasPrefix(line, prefix) {
+		return 0, 0, false
+	}
+
+	parts := strings.Split(strings.TrimPrefix(line, prefix), ":")
+	if len(parts) != 3 {
+		return 0, 0, false
+	}
+
+	downloaded, _ := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+	estimated, _ := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	total, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
+	if total <= 0 {
+		total = estimated
+	}
+	if downloaded < 0 {
+		downloaded = 0
+	}
+	return downloaded, total, true
 }
