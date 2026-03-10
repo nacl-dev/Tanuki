@@ -46,6 +46,11 @@ type Config struct {
 	// Duplicate detection (v0.5)
 	DuplicateThreshold int  // max Hamming distance to consider duplicate
 	PHashOnScan        bool // compute pHash during scan
+
+	// Authentication (v0.6)
+	JWTSecret           string
+	JWTExpiryHours      int
+	RegistrationEnabled bool
 }
 
 // Load reads configuration from environment variables, applying defaults where
@@ -74,6 +79,11 @@ func Load() (*Config, error) {
 		// Duplicate detection (v0.5)
 		DuplicateThreshold: getEnvInt("DUPLICATE_THRESHOLD", 10),
 		PHashOnScan:        getEnvBool("PHASH_ON_SCAN", true),
+
+		// Authentication (v0.6)
+		JWTSecret:           getEnv("JWT_SECRET", getEnv("SECRET_KEY", "change-me")),
+		JWTExpiryHours:      getEnvInt("JWT_EXPIRY_HOURS", 24),
+		RegistrationEnabled: getEnvBool("REGISTRATION_ENABLED", true),
 	}
 
 	if err := cfg.validate(); err != nil {
