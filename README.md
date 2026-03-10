@@ -81,18 +81,25 @@ open http://localhost:8080
 
 Copy `.env.example` to `.env` and adjust the values:
 
-| Variable                   | Default                                 | Description                       |
-|----------------------------|-----------------------------------------|-----------------------------------|
-| `DATABASE_URL`             | `postgresql://tanuki:secret@db:5432/…`  | PostgreSQL connection string      |
-| `REDIS_URL`                | `redis://cache:6379`                    | Redis connection string           |
-| `MEDIA_PATH`               | `/media`                                | Where your media files live       |
-| `THUMBNAILS_PATH`          | `/thumbnails`                           | Generated thumbnails              |
-| `DOWNLOADS_PATH`           | `/downloads`                            | Download destination              |
-| `SECRET_KEY`               | *(change me!)*                          | Session signing key               |
-| `PORT`                     | `8080`                                  | HTTP port                         |
-| `SCAN_INTERVAL`            | `300`                                   | Auto-scan interval (seconds)      |
-| `MAX_CONCURRENT_DOWNLOADS` | `3`                                     | Parallel download limit           |
-| `RATE_LIMIT_DELAY`         | `1000`                                  | ms delay between source requests  |
+| Variable                       | Default                                 | Description                                        |
+|--------------------------------|-----------------------------------------|----------------------------------------------------|
+| `DATABASE_URL`                 | `postgresql://tanuki:secret@db:5432/…`  | PostgreSQL connection string                       |
+| `REDIS_URL`                    | `redis://cache:6379`                    | Redis connection string                            |
+| `MEDIA_PATH`                   | `/media`                                | Where your media files live                        |
+| `THUMBNAILS_PATH`              | `/thumbnails`                           | Generated thumbnails                               |
+| `DOWNLOADS_PATH`               | `/downloads`                            | Download destination                               |
+| `SECRET_KEY`                   | *(change me!)*                          | Session signing key                                |
+| `PORT`                         | `8080`                                  | HTTP port                                          |
+| `SCAN_INTERVAL`                | `300`                                   | Auto-scan interval (seconds)                       |
+| `MAX_CONCURRENT_DOWNLOADS`     | `3`                                     | Parallel download limit                            |
+| `RATE_LIMIT_DELAY`             | `1000`                                  | ms delay between source requests                   |
+| `SAUCENAO_API_KEY`             | *(empty)*                               | SauceNAO API key; leave empty to disable           |
+| `IQDB_ENABLED`                 | `true`                                  | Enable IQDB fallback for auto-tagging              |
+| `AUTOTAG_SIMILARITY_THRESHOLD` | `80`                                    | Minimum match similarity % to accept tags          |
+| `AUTOTAG_ON_SCAN`              | `false`                                 | Auto-tag new items after every scan                |
+| `AUTOTAG_RATE_LIMIT_MS`        | `5000`                                  | ms between reverse-image-search API calls          |
+| `DUPLICATE_THRESHOLD`          | `10`                                    | Max pHash Hamming distance to consider a duplicate |
+| `PHASH_ON_SCAN`                | `true`                                  | Compute perceptual hash during library scan        |
 
 ---
 
@@ -136,8 +143,8 @@ Tanuki/
 | **v0.1** | Filesystem scan, thumbnails, basic gallery | ✅ Done |
 | **v0.2** | Booru-style tag search, filtering, sort options, ratings | ✅ Done |
 | **v0.3** | Video player, manga/comic reader | ✅ Done |
-| **v0.4** | Auto-tagging via SauceNAO / IQDB | 🔜 Next |
-| **v0.5** | Perceptual hash duplicate detection | 📋 Planned |
+| **v0.4** | Auto-tagging via SauceNAO / IQDB | ✅ Done |
+| **v0.5** | Perceptual hash duplicate detection | ✅ Done |
 | **v0.6** | Multi-user authentication | 📋 Planned |
 | **v1.0** | Stable release, community plugins | 📋 Planned |
 

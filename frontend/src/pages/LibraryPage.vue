@@ -48,6 +48,14 @@
         <SearchBar @search="onSearch" />
         <div class="gallery-controls">
           <span class="gallery-count">{{ store.total }} items</span>
+          <button
+            class="btn btn-secondary btn-sm autotag-all-btn"
+            :disabled="batchTagging"
+            @click="autoTagAll"
+            title="Auto-tag all untagged items"
+          >
+            {{ batchTagging ? '⏳ Queuing…' : '🏷️ Auto-Tag Untagged' }}
+          </button>
           <select
             class="sort-select"
             :value="store.filters.sort"
@@ -78,14 +86,31 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/mediaStore'
+import { autotagApi } from '@/api/autotagApi'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
 import SearchBar from '@/components/Search/SearchBar.vue'
 
 const store = useMediaStore()
 const route = useRoute()
+
+const batchTagging = ref(false)
+
+async function autoTagAll() {
+  if (batchTagging.value) return
+  batchTagging.value = true
+  try {
+    const res = await autotagApi.autotagBatch('all_untagged')
+    alert(`🏷️ Queued ${res.data.queued} items for auto-tagging.`)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Batch auto-tag failed'
+    alert(msg)
+  } finally {
+    batchTagging.value = false
+  }
+}
 
 const types = [
   { value: '',          label: 'All'        },
@@ -200,9 +225,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .gallery-count { font-size: 13px; color: var(--text-muted); }
+
+.autotag-all-btn { flex-shrink: 0; }
 
 .sort-select {
   background: var(--bg-card);

@@ -22,10 +22,11 @@
 
 <script setup lang="ts">
 const navItems = [
-  { name: 'library',   to: '/',          icon: '📚', label: 'Library'   },
-  { name: 'downloads', to: '/downloads', icon: '⬇️',  label: 'Downloads' },
-  { name: 'tags',      to: '/tags',      icon: '🏷️',  label: 'Tags'      },
-  { name: 'settings',  to: '/settings',  icon: '⚙️',  label: 'Settings'  },
+  { name: 'library',    to: '/',           icon: '📚', label: 'Library'    },
+  { name: 'downloads',  to: '/downloads',  icon: '⬇️',  label: 'Downloads'  },
+  { name: 'tags',       to: '/tags',       icon: '🏷️',  label: 'Tags'       },
+  { name: 'duplicates', to: '/duplicates', icon: '🔍',  label: 'Duplicates' },
+  { name: 'settings',   to: '/settings',   icon: '⚙️',  label: 'Settings'   },
 ]
 </script>
 

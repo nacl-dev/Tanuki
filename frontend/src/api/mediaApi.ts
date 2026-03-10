@@ -15,6 +15,13 @@ export interface Media {
   thumbnail_path: string
   read_progress: number
   read_total: number
+  // Auto-tag fields (v0.4)
+  auto_tag_status?: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+  auto_tag_source?: string
+  auto_tag_similarity?: number
+  auto_tagged_at?: string
+  // Perceptual hash (v0.5)
+  phash?: number | null
   tags?: Tag[]
   created_at: string
   updated_at: string
