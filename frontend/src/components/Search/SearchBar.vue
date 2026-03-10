@@ -14,9 +14,12 @@
       </button>
       <input
         v-model="query"
+        id="global-search"
+        name="global-search"
         type="text"
         placeholder="Search by title or tag…"
         class="search-input"
+        autocomplete="off"
         @focus="showSuggestions = suggestions.length > 0"
         @input="onInput"
         @keydown.enter.prevent="onEnter"
@@ -90,18 +93,18 @@ const debouncedSuggest = useDebounceFn(async (value: string) => {
     return
   }
 
-  const [tagsRes, titlesRes] = await Promise.all([
+  const [tagsRes, titlesRes] = await Promise.allSettled([
     tagApi.search(term),
     mediaApi.suggestions(term),
   ])
 
-  const tagSuggestions: SearchSuggestion[] = (tagsRes.data ?? []).map((tag) => ({
+  const tagSuggestions: SearchSuggestion[] = (tagsRes.status === 'fulfilled' ? (tagsRes.value.data ?? []) : []).map((tag) => ({
     type: 'tag',
     value: tag.name,
     label: tag.name,
   }))
 
-  const titleSuggestions = titlesRes.data ?? []
+  const titleSuggestions = titlesRes.status === 'fulfilled' ? (titlesRes.value.data ?? []) : []
   const merged = [...tagSuggestions, ...titleSuggestions]
   const seen = new Set<string>()
   suggestions.value = merged.filter((item) => {

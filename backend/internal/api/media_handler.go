@@ -182,7 +182,7 @@ func (h *MediaHandler) Suggestions(c *gin.Context) {
 
 	var suggestions []suggestion
 	if err := h.db.Select(&suggestions, `
-		SELECT *
+		SELECT type, value, label
 		FROM (
 			SELECT
 				'title' AS type,
