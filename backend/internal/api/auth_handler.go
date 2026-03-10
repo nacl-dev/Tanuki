@@ -174,6 +174,10 @@ func (h *AuthHandler) UpdateMe(c *gin.Context) {
 		user.Email = req.Email
 	}
 	if req.Password != "" {
+		if len(req.Password) < 8 {
+			respondError(c, http.StatusBadRequest, "password must be at least 8 characters")
+			return
+		}
 		hash, err := auth.HashPassword(req.Password)
 		if err != nil {
 			respondError(c, http.StatusInternalServerError, "failed to hash password")
@@ -249,7 +253,11 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 	if req.Email != "" {
 		user.Email = req.Email
 	}
-	if req.Role == string(models.RoleAdmin) || req.Role == string(models.RoleUser) {
+	if req.Role != "" {
+		if req.Role != string(models.RoleAdmin) && req.Role != string(models.RoleUser) {
+			respondError(c, http.StatusBadRequest, "invalid role: must be 'admin' or 'user'")
+			return
+		}
 		user.Role = models.UserRole(req.Role)
 	}
 	if req.IsActive != nil {

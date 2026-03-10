@@ -95,7 +95,7 @@ async function onSubmit() {
       username: form.value.username,
       email: form.value.email,
       password: form.value.password,
-      display_name: form.value.display_name || undefined,
+      display_name: form.value.display_name ? form.value.display_name : undefined,
     })
     router.push('/')
   } catch (e: any) {

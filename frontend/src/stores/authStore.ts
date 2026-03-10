@@ -52,9 +52,6 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = await authApi.updateProfile(body)
   }
 
-  // Rehydrate on store creation
-  fetchMe()
-
   return {
     user,
     token,

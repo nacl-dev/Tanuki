@@ -21,7 +21,9 @@ client.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('tanuki_token')
-      window.location.href = '/login'
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
     }
     const msg = err.response?.data?.error ?? err.message
     return Promise.reject(new Error(msg))

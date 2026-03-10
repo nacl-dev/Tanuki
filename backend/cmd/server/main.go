@@ -28,6 +28,9 @@ func main() {
 	if cfg.SecretKey == "change-me" {
 		log.Warn("SECRET_KEY is not set – using insecure default")
 	}
+	if cfg.JWTSecret == "change-me" {
+		log.Warn("JWT_SECRET is not set – using insecure default; tokens can be forged")
+	}
 
 	// ── Database ──────────────────────────────────────────────────────────────
 	db, err := database.Connect(cfg.DatabaseURL)
