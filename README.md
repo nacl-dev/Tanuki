@@ -1,10 +1,10 @@
-# Tanuki
+# 🦝 Tanuki
 
-> Self-hosted media vault for videos, images, manga, comics, doujinshi and source downloads.
+> **Self-hosted media vault** for videos, images, manga, comics, doujinshi and source downloads.
 
 Tanuki brings library management, downloading, tagging, reading and playback together in one Docker-based stack.
 
-## Overview
+## ✨ Overview
 
 Tanuki is built for collections that are:
 
@@ -24,22 +24,22 @@ It combines:
 - manual and smart collections
 - multi-user authentication
 
-## Highlights
+## 🚀 Highlights
 
 | Area | What you get |
 |---|---|
-| Library | Scan `/media`, detect media types, generate thumbnails, edit metadata |
-| Intake | Import unorganized files from `/inbox` |
-| Viewer | Custom video player, manga/comic reader, fullscreen, resume/progress |
-| Downloads | Queue, schedules, live progress, automatic organize + scan |
-| Tags | Filtering, search, counts, auto-tagging |
-| Duplicates | Perceptual hash duplicate detection |
-| Collections | Manual collections and rule-based smart collections |
-| Auth | Multi-user login and protected API routes |
+| 📚 Library | Scan `/media`, detect media types, generate thumbnails, edit metadata |
+| 📥 Intake | Import unorganized files from `/inbox` |
+| 🎬 Viewer | Custom video player, manga/comic reader, fullscreen, resume/progress |
+| ⬇️ Downloads | Queue, schedules, live progress, automatic organize + scan |
+| 🏷️ Tags | Filtering, search, counts, auto-tagging |
+| 🧩 Duplicates | Perceptual hash duplicate detection |
+| 📦 Collections | Manual collections and rule-based smart collections |
+| 🔐 Auth | Multi-user login and protected API routes |
 
-## Feature Set
+## 🧰 Feature Set
 
-### Library
+### 📚 Library
 
 - Recursive scan of `/media`
 - Supported media types:
@@ -60,7 +60,7 @@ It combines:
   - remote cover URL
 - Delete from database only or delete local file too
 
-### Reader and Player
+### 🎬 Reader and Player
 
 - Custom video player with:
   - click-anywhere play/pause
@@ -76,7 +76,7 @@ It combines:
   - fullscreen
   - saved read progress
 
-### Downloads
+### ⬇️ Downloads
 
 - Queue-based download manager
 - Live progress updates
@@ -100,14 +100,14 @@ Generic tools still available where useful:
 - `gallery-dl`
 - HTTP fallback for direct media files
 
-### Tags, Duplicates and Auto-Tagging
+### 🏷️ Tags, Duplicates and Auto-Tagging
 
 - Tag filters and tag search in the library
 - Real usage-based tag counts
 - Reverse-image-based auto-tag flow
 - Perceptual hash duplicate detection
 
-### Collections
+### 📦 Collections
 
 - Manual collections
 - Smart collections with rules for:
@@ -118,7 +118,7 @@ Generic tools still available where useful:
   - minimum rating
 - Manual items and automatic matches can coexist in the same collection
 
-## Quick Start
+## ⚡ Quick Start
 
 ### Requirements
 
@@ -143,7 +143,7 @@ Open:
 - you do not need to create the folder structure manually
 - database migrations run automatically on startup
 
-## Services
+## 🐳 Services
 
 | Service | Purpose | Port |
 |---|---|---|
@@ -153,7 +153,7 @@ Open:
 | `db` | PostgreSQL 16 | internal |
 | `cache` | Redis 7 | internal |
 
-## Paths
+## 📁 Paths
 
 ### Inside containers
 
@@ -182,7 +182,7 @@ media/
     Doujins/
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 The stack works with defaults, but environment variables can override runtime behavior.
 
@@ -212,7 +212,7 @@ The stack works with defaults, but environment variables can override runtime be
 | `PLUGINS_ENABLED` | `true` | Plugin system toggle |
 | `PLUGINS_PATH` | `/app/config/plugins` | Plugin folder |
 
-## Typical Workflows
+## 🛠️ Typical Workflows
 
 ### Import existing files
 
@@ -236,7 +236,7 @@ Examples:
 - all media tagged `tentacles`
 - favorites with rating `4★+`
 
-## API Surface
+## 🔌 API Surface
 
 Main authenticated API groups:
 
@@ -255,7 +255,7 @@ Health endpoints:
 - `/healthz`
 - `/api/health`
 
-## Project Structure
+## 🗂️ Project Structure
 
 ```text
 Tanuki/
@@ -291,13 +291,13 @@ Tanuki/
   Dockerfile
 ```
 
-## Notes
+## 📝 Notes
 
 - `media/` and `inbox/` are runtime data, not source files
 - empty runtime folders are intentionally not tracked in Git
 - downloaded media should not be committed
 - older docs or comments may still mention earlier paths like `/downloads`; the current Docker setup writes into `/media`
 
-## License
+## 📄 License
 
 [MIT](LICENSE)
