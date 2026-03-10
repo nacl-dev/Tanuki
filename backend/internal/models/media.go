@@ -2,7 +2,6 @@
 package models
 
 import (
-	"database/sql"
 	"time"
 )
 
@@ -28,15 +27,13 @@ type Media struct {
 	Rating    int        `db:"rating"      json:"rating"`    // 0-5
 	Favorite  bool       `db:"favorite"    json:"favorite"`
 	ViewCount int        `db:"view_count"  json:"view_count"`
-	Language  string     `db:"language"    json:"language"`
-	SourceURL string     `db:"source_url"  json:"source_url"`
-	CreatedAt time.Time  `db:"created_at"  json:"created_at"`
-	UpdatedAt time.Time  `db:"updated_at"  json:"updated_at"`
-	DeletedAt *time.Time `db:"deleted_at"  json:"deleted_at,omitempty"`
+	Language      string     `db:"language"       json:"language"`
+	SourceURL     string     `db:"source_url"     json:"source_url"`
+	ThumbnailPath string     `db:"thumbnail_path" json:"thumbnail_path"`
+	CreatedAt     time.Time  `db:"created_at"     json:"created_at"`
+	UpdatedAt     time.Time  `db:"updated_at"     json:"updated_at"`
+	DeletedAt     *time.Time `db:"deleted_at"     json:"deleted_at,omitempty"`
 
 	// Computed / joined fields (not DB columns)
 	Tags []Tag `db:"-" json:"tags,omitempty"`
-
-	// Thumbnail URL is resolved at the API layer
-	ThumbnailURL sql.NullString `db:"thumbnail_url" json:"thumbnail_url,omitempty"`
 }

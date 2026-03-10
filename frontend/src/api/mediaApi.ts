@@ -12,7 +12,7 @@ export interface Media {
   view_count: number
   language: string
   source_url: string
-  thumbnail_url?: string
+  thumbnail_path: string
   tags?: Tag[]
   created_at: string
   updated_at: string

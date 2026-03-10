@@ -1,6 +1,8 @@
 module github.com/nacl-dev/tanuki
 
-go 1.22
+go 1.24.0
+
+toolchain go1.24.13
 
 require (
 	github.com/gin-gonic/gin v1.9.1
@@ -34,9 +36,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.23.0 // indirect
+	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
