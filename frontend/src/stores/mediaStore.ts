@@ -14,6 +14,9 @@ export const useMediaStore = defineStore('media', () => {
     type: '',
     q: '',
     favorite: undefined,
+    tag: '',
+    sort: 'newest',
+    min_rating: undefined,
   })
 
   const totalPages = computed(() => Math.max(1, Math.ceil(total.value / (filters.limit ?? 50))))

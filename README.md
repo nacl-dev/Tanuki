@@ -131,15 +131,15 @@ Tanuki/
 
 ## 🗺️ Roadmap
 
-| Version | Features |
-|---------|----------|
-| **v0.1** | Filesystem scan, thumbnails, basic gallery |
-| **v0.2** | Booru-style search, filtering, ratings |
-| **v0.3** | Video player, manga/comic reader |
-| **v0.4** | Auto-tagging via SauceNAO / IQDB |
-| **v0.5** | Perceptual hash duplicate detection |
-| **v0.6** | Multi-user authentication |
-| **v1.0** | Stable release, community plugins |
+| Version | Features | Status |
+|---------|----------|--------|
+| **v0.1** | Filesystem scan, thumbnails, basic gallery | ✅ Done |
+| **v0.2** | Booru-style tag search, filtering, sort options, ratings | ✅ Done |
+| **v0.3** | Video player, manga/comic reader | 🔜 Next |
+| **v0.4** | Auto-tagging via SauceNAO / IQDB | 📋 Planned |
+| **v0.5** | Perceptual hash duplicate detection | 📋 Planned |
+| **v0.6** | Multi-user authentication | 📋 Planned |
+| **v1.0** | Stable release, community plugins | 📋 Planned |
 
 ---
 

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nacl-dev/tanuki/internal/database"
@@ -15,15 +16,18 @@ type MediaHandler struct {
 }
 
 // List returns a paginated list of media items with optional filtering.
-// GET /api/media?page=1&limit=50&type=video&q=search&favorite=true
+// GET /api/media?page=1&limit=50&type=video&q=search&favorite=true&tag=artist&tags=a,b&sort=newest&min_rating=3
 func (h *MediaHandler) List(c *gin.Context) {
 	type query struct {
-		Page     int    `form:"page"     binding:"-"`
-		Limit    int    `form:"limit"    binding:"-"`
-		Type     string `form:"type"     binding:"-"`
-		Q        string `form:"q"        binding:"-"`
-		Favorite *bool  `form:"favorite" binding:"-"`
-		Tag      string `form:"tag"      binding:"-"`
+		Page      int    `form:"page"       binding:"-"`
+		Limit     int    `form:"limit"      binding:"-"`
+		Type      string `form:"type"       binding:"-"`
+		Q         string `form:"q"          binding:"-"`
+		Favorite  *bool  `form:"favorite"   binding:"-"`
+		Tag       string `form:"tag"        binding:"-"`
+		Tags      string `form:"tags"       binding:"-"`
+		Sort      string `form:"sort"       binding:"-"`
+		MinRating *int   `form:"min_rating" binding:"-"`
 	}
 
 	var q query
@@ -62,6 +66,43 @@ func (h *MediaHandler) List(c *gin.Context) {
 		args = append(args, *q.Favorite)
 		argIdx++
 	}
+	if q.MinRating != nil {
+		whereClause += ` AND m.rating >= $` + itoa(argIdx)
+		args = append(args, *q.MinRating)
+		argIdx++
+	}
+	// Single tag filter.
+	if q.Tag != "" {
+		whereClause += ` AND m.id IN (SELECT mt.media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = $` + itoa(argIdx) + `)`
+		args = append(args, q.Tag)
+		argIdx++
+	}
+	// Multi-tag filter (AND logic): each tag listed in ?tags= must be present.
+	if q.Tags != "" {
+		for _, tag := range splitTags(q.Tags) {
+			if tag == "" {
+				continue
+			}
+			whereClause += ` AND m.id IN (SELECT mt.media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = $` + itoa(argIdx) + `)`
+			args = append(args, tag)
+			argIdx++
+		}
+	}
+
+	// Determine ORDER BY clause based on the sort parameter.
+	orderClause := ` ORDER BY m.created_at DESC`
+	switch q.Sort {
+	case "oldest":
+		orderClause = ` ORDER BY m.created_at ASC`
+	case "title":
+		orderClause = ` ORDER BY m.title ASC`
+	case "rating":
+		orderClause = ` ORDER BY m.rating DESC, m.created_at DESC`
+	case "size":
+		orderClause = ` ORDER BY m.file_size DESC`
+	case "views":
+		orderClause = ` ORDER BY m.view_count DESC`
+	}
 
 	// Count query applies the same filters.
 	var total int
@@ -71,8 +112,8 @@ func (h *MediaHandler) List(c *gin.Context) {
 		return
 	}
 
-	sqlQuery := `SELECT m.* FROM media m` + whereClause +
-		` ORDER BY m.created_at DESC LIMIT $` + itoa(argIdx) + ` OFFSET $` + itoa(argIdx+1)
+	sqlQuery := `SELECT m.* FROM media m` + whereClause + orderClause +
+		` LIMIT $` + itoa(argIdx) + ` OFFSET $` + itoa(argIdx+1)
 	args = append(args, q.Limit, offset)
 
 	var items []models.Media
@@ -202,5 +243,15 @@ func (h *MediaHandler) ServeThumbnail(c *gin.Context) {
 
 	c.Header("Cache-Control", "public, max-age=86400")
 	c.File(item.ThumbnailPath)
+}
+
+// splitTags splits a comma-separated tag string into individual tag names,
+// trimming whitespace from each entry.
+func splitTags(s string) []string {
+	parts := strings.Split(s, ",")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return parts
 }
 

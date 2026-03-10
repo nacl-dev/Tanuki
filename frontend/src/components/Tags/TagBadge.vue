@@ -1,7 +1,10 @@
 <template>
-  <span :class="['badge', `badge--${tag.category}`]">
+  <router-link
+    :to="{ path: '/', query: { tag: tag.name } }"
+    :class="['badge', `badge--${tag.category}`]"
+  >
     {{ tag.category !== 'general' ? `${tag.category}:` : '' }}{{ tag.name }}
-  </span>
+  </router-link>
 </template>
 
 <script setup lang="ts">
@@ -19,7 +22,12 @@ defineProps<{ tag: Tag }>()
   font-weight: 500;
   line-height: 1.6;
   white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
 }
+
+.badge:hover { opacity: 0.8; }
 
 .badge--general   { background: rgba(96,96,112,0.25);  color: #a0a0b8; }
 .badge--artist    { background: rgba(239,68,68,0.2);   color: #f87171; }
