@@ -37,11 +37,11 @@ type Config struct {
 	RateLimitDelay         int // milliseconds
 
 	// Auto-tagging (v0.4)
-	SauceNAOAPIKey            string
-	IQDBEnabled               bool
-	AutoTagSimilarityThreshold int  // percentage 0-100
-	AutoTagOnScan             bool
-	AutoTagRateLimitMs        int  // milliseconds between API requests
+	SauceNAOAPIKey             string
+	IQDBEnabled                bool
+	AutoTagSimilarityThreshold int // percentage 0-100
+	AutoTagOnScan              bool
+	AutoTagRateLimitMs         int // milliseconds between API requests
 
 	// Duplicate detection (v0.5)
 	DuplicateThreshold int  // max Hamming distance to consider duplicate
@@ -51,6 +51,10 @@ type Config struct {
 	JWTSecret           string
 	JWTExpiryHours      int
 	RegistrationEnabled bool
+
+	// Plugins (v1.0)
+	PluginsPath    string
+	PluginsEnabled bool
 }
 
 // Load reads configuration from environment variables, applying defaults where
@@ -84,6 +88,10 @@ func Load() (*Config, error) {
 		JWTSecret:           getEnv("JWT_SECRET", getEnv("SECRET_KEY", "change-me")),
 		JWTExpiryHours:      getEnvInt("JWT_EXPIRY_HOURS", 24),
 		RegistrationEnabled: getEnvBool("REGISTRATION_ENABLED", true),
+
+		// Plugins (v1.0)
+		PluginsPath:    getEnv("PLUGINS_PATH", "/app/config/plugins"),
+		PluginsEnabled: getEnvBool("PLUGINS_ENABLED", true),
 	}
 
 	if err := cfg.validate(); err != nil {

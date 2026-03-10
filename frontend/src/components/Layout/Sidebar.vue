@@ -39,6 +39,7 @@ const navItems = [
   { name: 'downloads',  to: '/downloads',  icon: '⬇️',  label: 'Downloads'  },
   { name: 'tags',       to: '/tags',       icon: '🏷️',  label: 'Tags'       },
   { name: 'duplicates', to: '/duplicates', icon: '🔍',  label: 'Duplicates' },
+  { name: 'plugins',    to: '/plugins',    icon: '🧩',  label: 'Plugins'    },
   { name: 'settings',   to: '/settings',   icon: '⚙️',  label: 'Settings'   },
 ]
 

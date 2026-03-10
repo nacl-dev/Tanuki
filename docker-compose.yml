@@ -20,11 +20,14 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PORT=8080
       - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - PLUGINS_PATH=/app/config/plugins
+      - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
     volumes:
       - ./media:/media:ro
       - thumbnails:/thumbnails
       - downloads:/downloads
       - config:/app/config
+      - plugins:/app/config/plugins
     depends_on:
       db:
         condition: service_healthy
@@ -50,10 +53,13 @@ services:
       - MEDIA_PATH=/media
       - THUMBNAILS_PATH=/thumbnails
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PLUGINS_PATH=/app/config/plugins
+      - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
     volumes:
       - ./media:/media:ro
       - thumbnails:/thumbnails
       - config:/app/config
+      - plugins:/app/config/plugins
     depends_on:
       db:
         condition: service_healthy
@@ -114,4 +120,5 @@ volumes:
   thumbnails:
   downloads:
   config:
+  plugins:
   redisdata:

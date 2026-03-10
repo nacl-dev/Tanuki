@@ -8,12 +8,13 @@ import (
 	"github.com/nacl-dev/tanuki/internal/auth"
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/plugins"
 	"go.uber.org/zap"
 )
 
 // Router creates and returns a configured Gin engine with all API routes
 // and a static file server for the compiled frontend.
-func Router(db *database.DB, staticDir string, cfg *config.Config, log *zap.Logger) *gin.Engine {
+func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistry *plugins.Registry, log *zap.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
@@ -35,7 +36,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, log *zap.Logg
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.6.0"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "1.0.0"})
 	})
 
 	// ─── Auth routes (public) ─────────────────────────────────────────────────
@@ -121,6 +122,31 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, log *zap.Logg
 				duplicates.GET("", ddh.ListDuplicates)
 				duplicates.POST("/resolve", ddh.ResolveDuplicates)
 			}
+
+			// Plugins (v1.0)
+			if pluginRegistry != nil {
+				ph := newPluginHandler(pluginRegistry)
+				pluginsGroup := protected.Group("/plugins")
+				{
+					pluginsGroup.GET("", ph.List)
+					pluginsGroup.POST("/scan", ph.Scan)
+					pluginsGroup.PATCH("/:id", ph.Update)
+					pluginsGroup.DELETE("/:id", ph.Delete)
+				}
+			}
+
+			// System info (v1.0)
+			protected.GET("/system/info", func(c *gin.Context) {
+				var mediaCount int
+				_ = db.Get(&mediaCount, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL`)
+				var pluginCount int
+				_ = db.Get(&pluginCount, `SELECT COUNT(*) FROM plugins`)
+				c.JSON(http.StatusOK, gin.H{
+					"version":      "1.0.0",
+					"media_count":  mediaCount,
+					"plugin_count": pluginCount,
+				})
+			})
 		}
 
 		// ─── Admin-only routes ────────────────────────────────────────────────

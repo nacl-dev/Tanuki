@@ -13,6 +13,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/dedup"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/plugins"
 	"github.com/nacl-dev/tanuki/internal/scanner"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"go.uber.org/zap"
@@ -59,6 +60,15 @@ func main() {
 		Threshold:      float64(cfg.AutoTagSimilarityThreshold),
 		RateLimitMs:    cfg.AutoTagRateLimitMs,
 	}, log)
+
+	// Plugin registry (v1.0)
+	if cfg.PluginsEnabled {
+		pluginRegistry := plugins.NewRegistry(db, cfg.PluginsPath, log)
+		if err := pluginRegistry.LoadAll(); err != nil {
+			log.Warn("worker: plugin load failed", zap.Error(err))
+		}
+		_ = pluginRegistry // available for future metadata-fetch hooks
+	}
 
 	ticker := time.NewTicker(time.Duration(cfg.ScanInterval) * time.Second)
 	defer ticker.Stop()
@@ -206,4 +216,3 @@ func autoTagUntagged(ctx context.Context, db *database.DB, svc *autotag.Service,
 		}
 	}
 }
-

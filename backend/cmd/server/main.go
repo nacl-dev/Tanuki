@@ -12,6 +12,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/api"
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/plugins"
 	"go.uber.org/zap"
 )
 
@@ -44,13 +45,22 @@ func main() {
 	}
 	log.Info("database ready")
 
+	// ── Plugin registry (v1.0) ────────────────────────────────────────────────
+	var pluginRegistry *plugins.Registry
+	if cfg.PluginsEnabled {
+		pluginRegistry = plugins.NewRegistry(db, cfg.PluginsPath, log)
+		if err := pluginRegistry.LoadAll(); err != nil {
+			log.Warn("plugins: initial load failed", zap.Error(err))
+		}
+	}
+
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	staticDir := os.Getenv("STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "/app/static"
 	}
 
-	router := api.Router(db, staticDir, cfg, log)
+	router := api.Router(db, staticDir, cfg, pluginRegistry, log)
 
 	srv := &http.Server{
 		Addr:         cfg.ServerAddr(),

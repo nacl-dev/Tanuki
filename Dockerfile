@@ -49,7 +49,7 @@ RUN apk add --no-cache \
 RUN pip3 install --break-system-packages --no-cache-dir gallery-dl yt-dlp
 
 # Create app directories
-RUN mkdir -p /app/static /media /thumbnails /downloads /app/config
+RUN mkdir -p /app/static /media /thumbnails /downloads /app/config /app/config/plugins
 
 COPY --from=frontend-builder /app/frontend/dist /app/static
 COPY --from=go-builder /bin/tanuki-server     /bin/tanuki-server
