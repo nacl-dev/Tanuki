@@ -7,7 +7,7 @@
     :media-id="media.id"
     :total-pages="pages.total_pages"
     :pages="pages.pages"
-    :initial-page="media.read_progress || 0"
+    :initial-page="readerStartPage"
     @close="showReader = false"
     @pagechange="onPageChange"
   />
@@ -75,10 +75,20 @@
           <div v-else class="media-placeholder">
             <AppIcon :name="typeIcon(media.type)" :size="34" />
           </div>
-          <button type="button" class="btn btn-primary read-btn" @click="openReader">
-            <AppIcon name="book" :size="15" />
-            Read archive
-          </button>
+          <div class="archive-actions">
+            <button type="button" class="btn btn-primary read-btn" @click="openReader()">
+              <AppIcon name="book" :size="15" />
+              {{ media.read_progress > 0 ? 'Resume reading' : 'Read archive' }}
+            </button>
+            <button
+              v-if="media.read_progress > 0"
+              type="button"
+              class="btn btn-ghost read-btn-secondary"
+              @click="openReader(0)"
+            >
+              Start from page 1
+            </button>
+          </div>
         </div>
         <div v-else class="media-placeholder">
           <AppIcon :name="typeIcon(media.type)" :size="34" />
@@ -367,6 +377,7 @@ const loading = ref(true)
 const imgError = ref(false)
 const pages = ref<PagesResponse | null>(null)
 const showReader = ref(false)
+const readerStartPage = ref(0)
 
 // Auto-tag state
 const autoTagging = ref(false)
@@ -395,6 +406,7 @@ let activeLoadToken = 0
 
 // Debounce timer for progress saves
 let progressTimer: ReturnType<typeof setTimeout> | null = null
+let videoProgressTimer: ReturnType<typeof setTimeout> | null = null
 
 const isArchive = computed(() =>
   media.value?.type === 'manga' ||
@@ -667,8 +679,10 @@ function onImgError() {
   imgError.value = true
 }
 
-function openReader() {
-  if (!pages.value) return
+function openReader(startPage?: number) {
+  if (!pages.value || !media.value) return
+  const nextStartPage = startPage ?? media.value.read_progress ?? 0
+  readerStartPage.value = Math.max(0, Math.min(pages.value.total_pages - 1, nextStartPage))
   showReader.value = true
 }
 
@@ -683,9 +697,6 @@ function onPageChange(page: number) {
     }
   }, 1000)
 }
-
-// Video progress: save on timeupdate (debounced) and ended
-let videoProgressTimer: ReturnType<typeof setTimeout> | null = null
 
 function onVideoTimeUpdate(time: number) {
   if (!media.value) return
@@ -733,6 +744,7 @@ function resetDetailState() {
   imgError.value = false
   pages.value = null
   showReader.value = false
+  readerStartPage.value = 0
   duplicates.value = []
   collections.value = []
   loadingCollections.value = false
@@ -828,11 +840,18 @@ function isArchiveType(type: Media['type']) {
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
 }
 
-.read-btn {
+.archive-actions {
   position: absolute;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.read-btn {
   padding: 10px 24px;
   font-size: 15px;
   font-weight: 600;
@@ -846,6 +865,10 @@ function isArchiveType(type: Media['type']) {
 }
 
 .read-btn:hover { background: #fbbf24; }
+
+.read-btn-secondary {
+  min-height: 42px;
+}
 
 .detail-meta { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; }
 

@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,14 +19,21 @@ import (
 
 // YtDlpEngine wraps the yt-dlp CLI tool.
 type YtDlpEngine struct {
-	configPath string
-	log        *zap.Logger
-	progress   func(id string, downloaded, total int64, files, totalFiles int)
+	configPath        string
+	cookiesPath       string
+	impersonateClient string
+	log               *zap.Logger
+	progress          func(id string, downloaded, total int64, files, totalFiles int)
 }
 
 // NewYtDlpEngine creates a YtDlpEngine using an optional config file.
-func NewYtDlpEngine(configPath string, log *zap.Logger) *YtDlpEngine {
-	return &YtDlpEngine{configPath: configPath, log: log}
+func NewYtDlpEngine(configPath, cookiesPath, impersonateClient string, log *zap.Logger) *YtDlpEngine {
+	return &YtDlpEngine{
+		configPath:        configPath,
+		cookiesPath:       cookiesPath,
+		impersonateClient: strings.TrimSpace(impersonateClient),
+		log:               log,
+	}
 }
 
 func (e *YtDlpEngine) SetProgressUpdater(fn func(id string, downloaded, total int64, files, totalFiles int)) {
@@ -57,17 +64,14 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 	}
 	meta, _ := e.extractMetadata(job.URL)
 
-	args := []string{
+	args := append(e.baseArgs(), []string{
 		"--output", dest + "/%(title)s.%(ext)s",
 		"--write-info-json",
 		"--no-playlist",
 		"--progress",
 		"--newline",
 		"--progress-template", "download:tanuki:%(progress.downloaded_bytes)s:%(progress.total_bytes_estimate)s:%(progress.total_bytes)s",
-	}
-	if e.hasConfig() {
-		args = append(args, "--config-location", e.configPath)
-	}
+	}...)
 	args = append(args, job.URL)
 
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
@@ -84,10 +88,13 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 		return fmt.Errorf("yt-dlp start: %w", err)
 	}
 
+	stderrLines := &logBuffer{}
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			e.log.Debug("yt-dlp", zap.String("stderr", scanner.Text()))
+			line := scanner.Text()
+			stderrLines.Add(line)
+			e.log.Debug("yt-dlp", zap.String("stderr", line))
 		}
 	}()
 
@@ -103,6 +110,9 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 	}
 
 	if err := cmd.Wait(); err != nil {
+		if unsupportedErr := classifyYtDlpError(stderrLines.Joined()); unsupportedErr != nil {
+			return unsupportedErr
+		}
 		return fmt.Errorf("yt-dlp: %w", err)
 	}
 
@@ -129,14 +139,18 @@ func (e *YtDlpEngine) FetchMetadata(url string) (*SourceMetadata, error) {
 }
 
 func (e *YtDlpEngine) extractMetadata(url string) (*SourceMetadata, error) {
-	args := []string{"--dump-json", "--no-playlist"}
-	if e.hasConfig() {
-		args = append(args, "--config-location", e.configPath)
-	}
+	args := append(e.baseArgs(), "--dump-json", "--no-playlist")
 	args = append(args, url)
 
-	out, err := exec.Command("yt-dlp", args...).Output()
+	out, err := exec.Command("yt-dlp", args...).CombinedOutput()
 	if err != nil {
+		if unsupportedErr := classifyYtDlpError(string(out)); unsupportedErr != nil {
+			return nil, unsupportedErr
+		}
+		trimmed := strings.TrimSpace(string(out))
+		if trimmed != "" {
+			return nil, fmt.Errorf("yt-dlp metadata: %w: %s", err, trimmed)
+		}
 		return nil, fmt.Errorf("yt-dlp metadata: %w", err)
 	}
 
@@ -179,6 +193,35 @@ func (e *YtDlpEngine) hasConfig() bool {
 		return false
 	}
 	return true
+}
+
+func (e *YtDlpEngine) baseArgs() []string {
+	args := make([]string, 0, 8)
+	if e.hasConfig() {
+		args = append(args, "--config-location", e.configPath)
+	}
+	if strings.TrimSpace(e.cookiesPath) != "" {
+		args = append(args, "--cookies", e.cookiesPath)
+	}
+	if strings.TrimSpace(e.impersonateClient) != "" {
+		args = append(args, "--impersonate", e.impersonateClient)
+		args = append(args, "--extractor-args", "generic:impersonate="+e.impersonateClient)
+	}
+	return args
+}
+
+func classifyYtDlpError(output string) error {
+	lower := strings.ToLower(output)
+	switch {
+	case strings.Contains(lower, "cloudflare anti-bot challenge"):
+		return newUnsupportedURLError("yt-dlp", blockedChallengeDetail("source blocked by Cloudflare anti-bot challenge"))
+	case strings.Contains(lower, "unsupported url"):
+		return newUnsupportedURLError("yt-dlp", strings.TrimSpace(output))
+	case strings.Contains(lower, "http error 403"), strings.Contains(lower, "http error 401"), strings.Contains(lower, "http error 429"):
+		return newUnsupportedURLError("yt-dlp", blockedChallengeDetail("remote source blocked yt-dlp with an HTTP challenge"))
+	default:
+		return nil
+	}
 }
 
 func parseYtDlpProgress(line string) (int64, int64, bool) {

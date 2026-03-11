@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ─── API Server + Frontend ───────────────────────────────────────────────────
   app:
@@ -83,6 +81,8 @@ services:
       - DOWNLOADS_PATH=/media
       - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
       - RATE_LIMIT_DELAY=${RATE_LIMIT_DELAY:-1000}
+      - DOWNLOADER_COOKIES_FILE=${DOWNLOADER_COOKIES_FILE:-}
+      - YTDLP_IMPERSONATE=${YTDLP_IMPERSONATE:-chrome}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./media:/media

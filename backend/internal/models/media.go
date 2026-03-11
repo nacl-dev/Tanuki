@@ -29,7 +29,7 @@ const (
 // Media represents a single media item in the library.
 type Media struct {
 	ID                string          `db:"id"                  json:"id"`
-	OwnerID           *string         `db:"owner_id"            json:"owner_id,omitempty"`
+	OwnerID           *string         `db:"owner_id"            json:"-"`
 	Title             string          `db:"title"               json:"title"`
 	Type              MediaType       `db:"type"                json:"type"`
 	FilePath          string          `db:"file_path"           json:"file_path"`

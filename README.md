@@ -203,6 +203,8 @@ The stack works with defaults, but environment variables can override runtime be
 | `SCAN_INTERVAL` | `300` | Background scan interval in seconds |
 | `MAX_CONCURRENT_DOWNLOADS` | `3` | Parallel download jobs |
 | `RATE_LIMIT_DELAY` | `1000` | Delay between source requests in ms |
+| `DOWNLOADER_COOKIES_FILE` | empty | Optional Netscape `cookies.txt` for sources behind browser checks |
+| `YTDLP_IMPERSONATE` | `chrome` | yt-dlp impersonation target for stricter sources |
 | `SAUCENAO_API_KEY` | empty | SauceNAO support for auto-tagging |
 | `IQDB_ENABLED` | `true` | IQDB fallback |
 | `AUTOTAG_SIMILARITY_THRESHOLD` | `80` | Auto-tag confidence threshold |
@@ -229,6 +231,8 @@ The stack works with defaults, but environment variables can override runtime be
 2. Paste one or more URLs
 3. Watch live progress
 4. On completion, files are organized and scanned into the library automatically
+
+For stricter sources protected by Cloudflare or browser verification, export a Netscape-format `cookies.txt` file from your browser and set `DOWNLOADER_COOKIES_FILE` to a path that is mounted into the `downloader` container, for example `/media/.cookies/rule34.txt`.
 
 ### Build a smart collection
 
@@ -302,14 +306,16 @@ Tanuki/
 
 ## 👥 Multi-user Behavior
 
-Current behavior is shared-library first:
+Current behavior is mixed by product area:
 
-- media, tags, collections and downloads operate on one shared library dataset
+- media files and tags behave as one shared library
+- collections are user-scoped
+- download jobs and schedules are user-scoped
 - authentication controls access and admin-only actions
 - plugins are admin-only
-- `owner_id` exists in the schema, but the product currently behaves like a shared vault rather than strict per-user isolation
+- `owner_id` exists in the schema for future evolution, but is not part of the active product model today
 
-If you need hard multi-user isolation, plan that as a dedicated follow-up instead of assuming it today.
+If you need hard per-user library isolation, plan that as a dedicated follow-up instead of assuming it today.
 
 ## 📄 License
 

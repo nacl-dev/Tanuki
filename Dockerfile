@@ -46,8 +46,8 @@ RUN apk add --no-cache \
     py3-pip \
     curl
 
-# Install gallery-dl and yt-dlp via pip
-RUN pip3 install --break-system-packages --no-cache-dir gallery-dl yt-dlp
+# Install gallery-dl and yt-dlp plus browser impersonation support for tougher sites
+RUN pip3 install --break-system-packages --no-cache-dir gallery-dl yt-dlp curl-cffi brotli
 
 # Create app directories
 RUN mkdir -p /app/static /media /thumbnails /downloads /app/config /app/config/plugins

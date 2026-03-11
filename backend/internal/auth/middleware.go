@@ -14,6 +14,12 @@ const (
 
 const authCookieName = "tanuki_auth"
 
+type authEnvelope struct {
+	Error     string `json:"error"`
+	ErrorCode string `json:"error_code,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
 // AuthRequired returns a Gin middleware that validates a JWT from either the
 // Authorization header or the auth cookie. On success it sets "userID" and
 // "role" in the context. On failure it aborts with 401 Unauthorized.
@@ -27,13 +33,21 @@ func AuthRequired(secretKey string) gin.HandlerFunc {
 			tokenStr = cookie
 		}
 		if tokenStr == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization required"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, authEnvelope{
+				Error:     "authorization required",
+				ErrorCode: "unauthorized",
+				RequestID: c.GetString("requestID"),
+			})
 			return
 		}
 
 		claims, err := ValidateToken(tokenStr, secretKey)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, authEnvelope{
+				Error:     "invalid or expired token",
+				ErrorCode: "unauthorized",
+				RequestID: c.GetString("requestID"),
+			})
 			return
 		}
 
@@ -49,7 +63,11 @@ func AdminRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, _ := c.Get(contextRole)
 		if role != string(roleAdmin) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin access required"})
+			c.AbortWithStatusJSON(http.StatusForbidden, authEnvelope{
+				Error:     "admin access required",
+				ErrorCode: "forbidden",
+				RequestID: c.GetString("requestID"),
+			})
 			return
 		}
 		c.Next()

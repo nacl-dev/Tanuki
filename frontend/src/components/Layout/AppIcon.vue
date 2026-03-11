@@ -50,6 +50,15 @@ type IconName =
   | 'pause'
   | 'refresh'
   | 'trash'
+  | 'volumeOff'
+  | 'volumeLow'
+  | 'volumeHigh'
+  | 'expand'
+  | 'collapse'
+  | 'rewind'
+  | 'forward'
+  | 'pip'
+  | 'question'
 
 const props = withDefaults(defineProps<{
   name: IconName
@@ -81,6 +90,15 @@ const icons: Record<IconName, { stroke?: string[]; fill?: string[] }> = {
   pause: { stroke: ['M8 5V19', 'M16 5V19'] },
   refresh: { stroke: ['M20 11A8 8 0 0 0 6.34 5.34L4 7.67', 'M4 4V8H8', 'M4 13A8 8 0 0 0 17.66 18.66L20 16.33', 'M16 16H20V20'] },
   trash: { stroke: ['M4 7H20', 'M9 7V4H15V7', 'M7 7L8 19H16L17 7', 'M10 11V16', 'M14 11V16'] },
+  volumeOff: { stroke: ['M5 10H8L12 6V18L8 14H5V10Z', 'M17 9L21 15', 'M21 9L17 15'] },
+  volumeLow: { stroke: ['M5 10H8L12 6V18L8 14H5V10Z', 'M16 9.5A4 4 0 0 1 16 14.5'] },
+  volumeHigh: { stroke: ['M5 10H8L12 6V18L8 14H5V10Z', 'M16 8A6 6 0 0 1 16 16', 'M18.5 5.5A9 9 0 0 1 18.5 18.5'] },
+  expand: { stroke: ['M9 4H4V9', 'M15 4H20V9', 'M4 15V20H9', 'M20 15V20H15', 'M4 9L10 3', 'M14 3L20 9', 'M4 15L10 21', 'M14 21L20 15'] },
+  collapse: { stroke: ['M10 9H4V3', 'M14 9H20V3', 'M4 21V15H10', 'M20 21V15H14', 'M10 9L4 3', 'M14 9L20 3', 'M4 21L10 15', 'M14 15L20 21'] },
+  rewind: { stroke: ['M11 7L5 12L11 17V7Z', 'M19 7L13 12L19 17V7Z'] },
+  forward: { stroke: ['M5 7L11 12L5 17V7Z', 'M13 7L19 12L13 17V7Z'] },
+  pip: { stroke: ['M4 6A2 2 0 0 1 6 4H18A2 2 0 0 1 20 6V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V6Z', 'M12 12H19V18H12V12Z'] },
+  question: { stroke: ['M9.1 9A3 3 0 1 1 14.9 10.2C13.95 10.83 13 11.43 13 12.8V13.5', 'M12 18H12.01'] },
 }
 
 const icon = computed(() => icons[props.name] ?? icons.book)

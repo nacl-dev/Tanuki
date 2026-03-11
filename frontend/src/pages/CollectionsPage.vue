@@ -8,7 +8,7 @@
             <p class="section-copy">Kurze Listen statt riesiger Seitenleisten.</p>
           </div>
         </div>
-        <div class="compact-form">
+        <form class="compact-form" @submit.prevent="createCollection">
           <input v-model="draft.name" class="input" type="text" placeholder="Favorites, Series, Watchlist…" />
           <textarea
             v-model="draft.description"
@@ -43,10 +43,10 @@
               </select>
             </div>
           </div>
-          <button class="btn btn-primary" :disabled="saving || !draft.name.trim()" @click="createCollection">
+          <button class="btn btn-primary" type="submit" :disabled="!canCreateCollection">
             {{ saving ? 'Saving…' : 'Create Collection' }}
           </button>
-        </div>
+        </form>
       </div>
 
       <div class="card collections-list">
@@ -109,7 +109,7 @@
           </div>
         </div>
 
-        <div v-if="editing" class="edit-box">
+        <form v-if="editing" class="edit-box" @submit.prevent="saveCollection">
           <input v-model="editForm.name" class="input" type="text" />
           <textarea v-model="editForm.description" class="input textarea" rows="3" />
           <div class="smart-box">
@@ -140,10 +140,10 @@
             </div>
           </div>
           <div class="edit-actions">
-            <button class="btn btn-ghost btn-sm" @click="cancelEditing">Cancel</button>
-            <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveCollection">Save</button>
+            <button class="btn btn-ghost btn-sm" type="button" @click="cancelEditing">Cancel</button>
+            <button class="btn btn-secondary btn-sm" type="submit" :disabled="!canSaveCollection">Save</button>
           </div>
-        </div>
+        </form>
 
         <MediaGrid :items="selected.items ?? []" :loading="false" />
       </div>
@@ -153,10 +153,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
 import { collectionApi, type Collection } from '@/api/collectionApi'
 import { mediaAssetUrl } from '@/api/mediaApi'
+import { useNoticeStore } from '@/stores/noticeStore'
 
 const collections = ref<Collection[]>([])
 const selected = ref<Collection | null>(null)
@@ -166,6 +167,10 @@ const saving = ref(false)
 const editing = ref(false)
 const draft = ref({ name: '', description: '', auto_type: '', auto_title: '', auto_tag: '', auto_favorite_mode: '', auto_min_rating: '' })
 const editForm = ref({ name: '', description: '', auto_type: '', auto_title: '', auto_tag: '', auto_favorite_mode: '', auto_min_rating: '' })
+const { pushNotice } = useNoticeStore()
+
+const canCreateCollection = computed(() => !saving.value && draft.value.name.trim().length > 0)
+const canSaveCollection = computed(() => !saving.value && editForm.value.name.trim().length > 0)
 
 async function loadCollections(selectFirst = true) {
   loading.value = true
@@ -184,22 +189,36 @@ async function loadCollections(selectFirst = true) {
         selectedId.value = ''
       }
     }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to load collections'
+    pushNotice({ type: 'error', message: msg })
   } finally {
     loading.value = false
   }
 }
 
 async function selectCollection(id: string) {
-  selectedId.value = id
-  const res = await collectionApi.get(id)
-  selected.value = {
-    ...res.data,
-    items: res.data.items ?? [],
+  try {
+    selectedId.value = id
+    const res = await collectionApi.get(id)
+    selected.value = {
+      ...res.data,
+      items: res.data.items ?? [],
+    }
+    cancelEditing()
+  } catch (error) {
+    selected.value = null
+    selectedId.value = ''
+    const msg = error instanceof Error ? error.message : 'Failed to load collection'
+    pushNotice({ type: 'error', message: msg })
   }
-  cancelEditing()
 }
 
 async function createCollection() {
+  if (!canCreateCollection.value) {
+    pushNotice({ type: 'error', message: 'Please enter a collection name.' })
+    return
+  }
   saving.value = true
   try {
     const res = await collectionApi.create({
@@ -214,6 +233,10 @@ async function createCollection() {
     draft.value = { name: '', description: '', auto_type: '', auto_title: '', auto_tag: '', auto_favorite_mode: '', auto_min_rating: '' }
     await loadCollections(false)
     await selectCollection(res.data.id)
+    pushNotice({ type: 'success', message: `Collection "${res.data.name}" created.` })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to create collection'
+    pushNotice({ type: 'error', message: msg })
   } finally {
     saving.value = false
   }
@@ -239,6 +262,10 @@ function cancelEditing() {
 
 async function saveCollection() {
   if (!selected.value) return
+  if (!canSaveCollection.value) {
+    pushNotice({ type: 'error', message: 'Please enter a collection name.' })
+    return
+  }
   saving.value = true
   try {
     const res = await collectionApi.update(selected.value.id, {
@@ -253,6 +280,10 @@ async function saveCollection() {
     selected.value = res.data
     await loadCollections(false)
     editing.value = false
+    pushNotice({ type: 'success', message: `Collection "${res.data.name}" updated.` })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to update collection'
+    pushNotice({ type: 'error', message: msg })
   } finally {
     saving.value = false
   }
@@ -260,10 +291,17 @@ async function saveCollection() {
 
 async function removeCollection() {
   if (!selected.value) return
-  await collectionApi.remove(selected.value.id)
-  selected.value = null
-  selectedId.value = ''
-  await loadCollections(true)
+  const name = selected.value.name
+  try {
+    await collectionApi.remove(selected.value.id)
+    selected.value = null
+    selectedId.value = ''
+    await loadCollections(true)
+    pushNotice({ type: 'success', message: `Collection "${name}" deleted.` })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to delete collection'
+    pushNotice({ type: 'error', message: msg })
+  }
 }
 
 function previewItems(collection: Collection) {

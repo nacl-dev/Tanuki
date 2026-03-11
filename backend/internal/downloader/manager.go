@@ -153,10 +153,14 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 	job.TargetDirectory = stagingDir
 
 	var lastErr error
+	var firstUnsupportedErr error
 	for _, engine := range engines {
 		if err := engine.Download(ctx, &job); err != nil {
 			lastErr = err
 			if isUnsupportedURLError(err) {
+				if firstUnsupportedErr == nil {
+					firstUnsupportedErr = err
+				}
 				m.log.Warn("download: engine unsupported", zap.String("id", job.ID), zap.Error(err))
 				continue
 			}
@@ -193,6 +197,8 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no suitable download engine found")
+	} else if isUnsupportedURLError(lastErr) && firstUnsupportedErr != nil {
+		lastErr = firstUnsupportedErr
 	}
 	m.log.Error("download: failed", zap.String("id", job.ID), zap.Error(lastErr))
 	_ = os.RemoveAll(stagingDir)

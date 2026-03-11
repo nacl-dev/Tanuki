@@ -3,7 +3,8 @@
     <div class="page-header" :class="{ 'page-header--embedded': embedded }">
       <h2 class="page-title">Plugins</h2>
       <button class="btn btn-primary" :disabled="store.loading" @click="store.scanPlugins()">
-        🔄 Scan for Plugins
+        <AppIcon name="refresh" :size="14" />
+        Scan for Plugins
       </button>
     </div>
 
@@ -16,11 +17,13 @@
     <div v-if="store.loading" class="loading-indicator">Loading…</div>
 
     <div v-else-if="store.error" class="error-banner">
-      ⚠️ {{ store.error }}
+      {{ store.error }}
     </div>
 
     <div v-else-if="store.plugins.length === 0" class="empty-state">
-      <div class="empty-icon">🧩</div>
+      <div class="empty-icon">
+        <AppIcon name="collection" :size="30" />
+      </div>
       <p>No plugins installed</p>
       <p class="empty-hint">
         Drop a Python plugin file into <code>/app/config/plugins/</code>
@@ -36,7 +39,9 @@
         :class="{ 'plugin-card--disabled': !plugin.enabled }"
       >
         <div class="plugin-header">
-          <div class="plugin-icon">🧩</div>
+          <div class="plugin-icon">
+            <AppIcon name="collection" :size="22" />
+          </div>
           <div class="plugin-info">
             <h3 class="plugin-name">{{ plugin.name }}</h3>
             <span class="plugin-source">{{ plugin.source_name }}</span>
@@ -53,14 +58,16 @@
 
         <div class="plugin-meta">
           <span v-if="plugin.source_url" class="meta-item">
-            🌐 <a :href="plugin.source_url" target="_blank" rel="noopener">{{ plugin.source_url }}</a>
+            <AppIcon name="link" :size="13" />
+            <a :href="plugin.source_url" target="_blank" rel="noopener">{{ plugin.source_url }}</a>
           </span>
-          <span class="meta-item">📦 v{{ plugin.version }}</span>
+          <span class="meta-item">v{{ plugin.version }}</span>
         </div>
 
         <div class="plugin-actions">
           <button class="btn btn-danger-sm" @click="confirmDelete(plugin)">
-            🗑️ Remove
+            <AppIcon name="trash" :size="13" />
+            Remove
           </button>
         </div>
       </div>
@@ -81,6 +88,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { usePluginStore } from '@/stores/pluginStore'
 import type { Plugin } from '@/api/pluginApi'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 import ConfirmDialog from '@/components/Layout/ConfirmDialog.vue'
 
 withDefaults(defineProps<{ embedded?: boolean }>(), {

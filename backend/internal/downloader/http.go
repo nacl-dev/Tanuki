@@ -22,9 +22,14 @@ type HTTPEngine struct {
 }
 
 // NewHTTPEngine creates an HTTPEngine.
-func NewHTTPEngine(log *zap.Logger) *HTTPEngine {
+func NewHTTPEngine(cookiesPath string, log *zap.Logger) *HTTPEngine {
+	client, err := newHTTPClientWithCookies(cookiesPath)
+	if err != nil {
+		log.Warn("http: cookies unavailable", zap.String("path", cookiesPath), zap.Error(err))
+		client = &http.Client{}
+	}
 	return &HTTPEngine{
-		client: &http.Client{},
+		client: client,
 		log:    log,
 	}
 }
@@ -59,6 +64,9 @@ func (e *HTTPEngine) Download(ctx context.Context, job *models.DownloadJob) erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusTooManyRequests {
+			return newUnsupportedURLError("http", blockedSourceDetail(resp.StatusCode))
+		}
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 

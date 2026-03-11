@@ -35,6 +35,7 @@ import (
 // MediaHandler handles CRUD operations for media items.
 type MediaHandler struct {
 	db        *database.DB
+	mediaPath string
 	thumbPath string
 }
 
@@ -318,13 +319,25 @@ func (h *MediaHandler) Delete(c *gin.Context) {
 	}
 
 	if body.DeleteFile {
-		if err := removeIfExists(item.FilePath); err != nil {
+		filePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
+		if err != nil {
 			respondError(c, http.StatusInternalServerError, "delete file: "+err.Error())
 			return
 		}
-		if err := removeIfExists(item.ThumbnailPath); err != nil {
-			respondError(c, http.StatusInternalServerError, "delete thumbnail: "+err.Error())
+		if err := removeIfExists(filePath); err != nil {
+			respondError(c, http.StatusInternalServerError, "delete file: "+err.Error())
 			return
+		}
+		if strings.TrimSpace(item.ThumbnailPath) != "" {
+			thumbnailPath, err := ensureManagedPath(item.ThumbnailPath, h.thumbPath)
+			if err != nil {
+				respondError(c, http.StatusInternalServerError, "delete thumbnail: "+err.Error())
+				return
+			}
+			if err := removeIfExists(thumbnailPath); err != nil {
+				respondError(c, http.StatusInternalServerError, "delete thumbnail: "+err.Error())
+				return
+			}
 		}
 	}
 
@@ -347,13 +360,18 @@ func (h *MediaHandler) ServeFile(c *gin.Context) {
 		return
 	}
 
-	if _, err := os.Stat(item.FilePath); os.IsNotExist(err) {
+	filePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "file path is outside managed media roots")
+		return
+	}
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		respondError(c, http.StatusNotFound, "file not found on disk")
 		return
 	}
 
 	c.Header("Cache-Control", "public, max-age=86400")
-	c.File(item.FilePath)
+	c.File(filePath)
 }
 
 // ServeThumbnail serves the thumbnail image for a media item.
@@ -384,7 +402,12 @@ func (h *MediaHandler) ServeThumbnail(c *gin.Context) {
 		return
 	}
 
-	if _, err := os.Stat(item.ThumbnailPath); os.IsNotExist(err) {
+	thumbnailPath, err := ensureManagedPath(item.ThumbnailPath, h.thumbPath)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if _, err := os.Stat(thumbnailPath); os.IsNotExist(err) {
 		if strings.TrimSpace(h.thumbPath) != "" {
 			gen := thumbnails.New(h.thumbPath, nil)
 			if thumbPath, genErr := gen.GenerateForMedia(c.Request.Context(), &item); genErr == nil {
@@ -396,14 +419,19 @@ func (h *MediaHandler) ServeThumbnail(c *gin.Context) {
 				`, item.ID, thumbPath)
 			}
 		}
-		if _, err := os.Stat(item.ThumbnailPath); os.IsNotExist(err) {
+		thumbnailPath, err = ensureManagedPath(item.ThumbnailPath, h.thumbPath)
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if _, err := os.Stat(thumbnailPath); os.IsNotExist(err) {
 			c.Status(http.StatusNotFound)
 			return
 		}
 	}
 
 	c.Header("Cache-Control", "public, max-age=86400")
-	c.File(item.ThumbnailPath)
+	c.File(thumbnailPath)
 }
 
 // UploadThumbnail stores a custom thumbnail uploaded by the user.
@@ -584,11 +612,17 @@ func (h *MediaHandler) ListPages(c *gin.Context) {
 	var names []string
 	var err error
 
+	archivePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "archive path is outside managed media roots")
+		return
+	}
+
 	switch ext {
 	case ".zip", ".cbz":
-		names, err = listZipImages(item.FilePath)
+		names, err = listZipImages(archivePath)
 	case ".cbr", ".rar":
-		names, err = listRARImages(item.FilePath)
+		names, err = listRARImages(archivePath)
 	default:
 		respondError(c, http.StatusBadRequest, "media is not an archive type")
 		return
@@ -631,13 +665,19 @@ func (h *MediaHandler) ServePage(c *gin.Context) {
 	ext := strings.ToLower(filepath.Ext(item.FilePath))
 	c.Header("Cache-Control", "public, max-age=86400")
 
+	archivePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "archive path is outside managed media roots")
+		return
+	}
+
 	switch ext {
 	case ".zip", ".cbz":
-		if err := serveZipPage(c, item.FilePath, pageIdx); err != nil {
+		if err := serveZipPage(c, archivePath, pageIdx); err != nil {
 			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
 		}
 	case ".cbr", ".rar":
-		if err := serveRARPage(c, item.FilePath, pageIdx); err != nil {
+		if err := serveRARPage(c, archivePath, pageIdx); err != nil {
 			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
 		}
 	default:
@@ -847,7 +887,11 @@ func (h *MediaHandler) persistThumbnail(mediaID, previousPath string, raw []byte
 	}
 
 	if previousPath != "" && previousPath != outPath {
-		if err := removeIfExists(previousPath); err != nil {
+		cleanPrevious, err := ensureManagedPath(previousPath, h.thumbPath)
+		if err != nil {
+			return err
+		}
+		if err := removeIfExists(cleanPrevious); err != nil {
 			return err
 		}
 	}

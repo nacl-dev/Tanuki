@@ -91,6 +91,46 @@
         </div>
       </section>
 
+      <section class="card settings-card">
+        <div class="card-head">
+          <div>
+            <h3>Scope Model</h3>
+            <p class="card-copy">Current product behavior for shared vs. personal data areas.</p>
+          </div>
+        </div>
+
+        <div v-if="info" class="setting-list">
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Library / Tags</p>
+              <p class="setting-desc">Media files and tags currently behave as one shared vault.</p>
+            </div>
+            <span class="setting-value">{{ info.library_scope }} / {{ info.tag_scope }}</span>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Collections</p>
+              <p class="setting-desc">Saved collection definitions are currently user-scoped.</p>
+            </div>
+            <span class="setting-value">{{ info.collection_scope }}</span>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Downloads / Schedules</p>
+              <p class="setting-desc">Queue and schedules are currently separated per user account.</p>
+            </div>
+            <span class="setting-value">{{ info.download_scope }} / {{ info.schedule_scope }}</span>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Owner Mode</p>
+              <p class="setting-desc">Internal owner field is not part of the current product model.</p>
+            </div>
+            <span class="setting-value">{{ info.owner_mode }}</span>
+          </div>
+        </div>
+      </section>
+
       <section class="card settings-card settings-card--overview">
         <div class="card-head">
           <div>
@@ -154,6 +194,33 @@
         </div>
       </section>
     </div>
+
+    <section v-if="info" class="card settings-card">
+      <div class="card-head">
+        <div>
+          <h3>Path Health</h3>
+          <p class="card-copy">Basic runtime checks for the managed directories used by Tanuki.</p>
+        </div>
+      </div>
+
+      <div class="path-health-grid">
+        <div v-for="(pathInfo, key) in info.path_health" :key="key" class="path-health-card">
+          <div class="path-health-card__head">
+            <span class="overview-label">{{ key }}</span>
+            <strong :class="pathInfo.exists ? 'path-health-ok' : 'path-health-bad'">
+              {{ pathInfo.exists ? 'Available' : 'Missing' }}
+            </strong>
+          </div>
+          <code class="setting-value setting-value--block">{{ pathInfo.path }}</code>
+          <p class="path-health-meta">
+            {{ pathInfo.is_dir ? 'Directory' : 'File' }}
+            ·
+            {{ pathInfo.writable ? 'Writable' : 'Read-only or unavailable' }}
+          </p>
+          <p v-if="pathInfo.error" class="panel-error">{{ pathInfo.error }}</p>
+        </div>
+      </div>
+    </section>
 
     <section class="maintenance-grid">
       <button
@@ -344,6 +411,7 @@ async function scrollToSection(section: unknown) {
   appearance: none;
   text-align: left;
   cursor: pointer;
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -370,6 +438,7 @@ async function scrollToSection(section: unknown) {
 .maintenance-card h3 {
   margin: 0;
   font-size: 18px;
+  color: var(--text-primary);
 }
 
 .maintenance-link {
@@ -494,6 +563,49 @@ async function scrollToSection(section: unknown) {
 .overview-stat strong {
   font-size: 20px;
   color: var(--text-primary);
+}
+
+.path-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.path-health-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.path-health-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.path-health-ok {
+  color: #86efac;
+}
+
+.path-health-bad {
+  color: #fca5a5;
+}
+
+.path-health-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.setting-value--block {
+  max-width: none;
+  width: 100%;
+  text-align: left;
 }
 
 .status-list {

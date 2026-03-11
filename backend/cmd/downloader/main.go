@@ -41,14 +41,15 @@ func main() {
 	// Build engine list: yt-dlp first (video sites), gallery-dl second
 	// (everything else), HTTP as fallback.
 	engines := []dl.Engine{
-		dl.NewRule34ArtEngine(log),
-		dl.NewYtDlpEngine(configDir+"/yt-dlp.conf", log),
+		dl.NewRule34ArtEngine(cfg.DownloaderCookiesFile, log),
+		dl.NewPornComicsEngine(cfg.DownloaderCookiesFile, log),
+		dl.NewYtDlpEngine(configDir+"/yt-dlp.conf", cfg.DownloaderCookiesFile, cfg.YtDlpImpersonate, log),
 		dl.NewHentai0Engine(log),
 		dl.NewImageGalleryEngine(log),
 		dl.NewDanbooruEngine(log),
 		dl.NewBooruEngine(log),
-		dl.NewGalleryDLEngine(configDir+"/gallery-dl.conf", log),
-		dl.NewHTTPEngine(log),
+		dl.NewGalleryDLEngine(configDir+"/gallery-dl.conf", cfg.DownloaderCookiesFile, log),
+		dl.NewHTTPEngine(cfg.DownloaderCookiesFile, log),
 	}
 
 	manager := dl.NewManager(

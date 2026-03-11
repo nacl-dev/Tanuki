@@ -27,9 +27,14 @@ type Rule34ArtEngine struct {
 	progress func(id string, downloaded, total int64, files, totalFiles int)
 }
 
-func NewRule34ArtEngine(log *zap.Logger) *Rule34ArtEngine {
+func NewRule34ArtEngine(cookiesPath string, log *zap.Logger) *Rule34ArtEngine {
+	client, err := newHTTPClientWithCookies(cookiesPath)
+	if err != nil {
+		log.Warn("rule34art: cookies unavailable", zap.String("path", cookiesPath), zap.Error(err))
+		client = &http.Client{}
+	}
 	return &Rule34ArtEngine{
-		client: &http.Client{},
+		client: client,
 		log:    log,
 	}
 }
@@ -116,7 +121,7 @@ func (e *Rule34ArtEngine) fetchPage(ctx context.Context, rawURL string) (*rule34
 	if err != nil {
 		return nil, fmt.Errorf("rule34art request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Tanuki)")
+	setRule34ArtHeaders(req, sourceBaseURL(rawURL), "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
 
 	resp, err := e.client.Do(req)
 	if err != nil {
@@ -125,6 +130,9 @@ func (e *Rule34ArtEngine) fetchPage(ctx context.Context, rawURL string) (*rule34
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if isRule34ArtBlockedStatus(resp.StatusCode) {
+			return nil, newUnsupportedURLError("rule34art", blockedSourceDetail(resp.StatusCode))
+		}
 		return nil, fmt.Errorf("rule34art status: %d", resp.StatusCode)
 	}
 
@@ -266,8 +274,7 @@ func (e *Rule34ArtEngine) downloadComic(ctx context.Context, job *models.Downloa
 			_ = os.Remove(tmpPath)
 			return fmt.Errorf("rule34art image request %d: %w", i+1, err)
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Tanuki)")
-		req.Header.Set("Referer", job.URL)
+		setRule34ArtHeaders(req, job.URL, "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
 
 		resp, err := e.client.Do(req)
 		if err != nil {
@@ -281,6 +288,9 @@ func (e *Rule34ArtEngine) downloadComic(ctx context.Context, job *models.Downloa
 			zw.Close()
 			f.Close()
 			_ = os.Remove(tmpPath)
+			if isRule34ArtBlockedStatus(resp.StatusCode) {
+				return newUnsupportedURLError("rule34art", blockedSourceDetail(resp.StatusCode))
+			}
 			return fmt.Errorf("rule34art image status %d: %d", i+1, resp.StatusCode)
 		}
 
@@ -338,8 +348,7 @@ func (e *Rule34ArtEngine) downloadVideo(ctx context.Context, job *models.Downloa
 	if err != nil {
 		return fmt.Errorf("rule34art video request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Tanuki)")
-	req.Header.Set("Referer", job.URL)
+	setRule34ArtHeaders(req, job.URL, "video/*,*/*;q=0.8")
 
 	resp, err := e.client.Do(req)
 	if err != nil {
@@ -348,6 +357,9 @@ func (e *Rule34ArtEngine) downloadVideo(ctx context.Context, job *models.Downloa
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if isRule34ArtBlockedStatus(resp.StatusCode) {
+			return newUnsupportedURLError("rule34art", blockedSourceDetail(resp.StatusCode))
+		}
 		return fmt.Errorf("rule34art video status: %d", resp.StatusCode)
 	}
 
@@ -415,7 +427,7 @@ func (e *Rule34ArtEngine) fetchJuiceboxGallery(ctx context.Context, rawURL strin
 	if err != nil {
 		return nil, fmt.Errorf("rule34art gallery request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Tanuki)")
+	setRule34ArtHeaders(req, sourceBaseURL(rawURL), "application/xml,text/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := e.client.Do(req)
 	if err != nil {
@@ -424,6 +436,9 @@ func (e *Rule34ArtEngine) fetchJuiceboxGallery(ctx context.Context, rawURL strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if isRule34ArtBlockedStatus(resp.StatusCode) {
+			return nil, newUnsupportedURLError("rule34art", blockedSourceDetail(resp.StatusCode))
+		}
 		return nil, fmt.Errorf("rule34art gallery status: %d", resp.StatusCode)
 	}
 
@@ -647,4 +662,24 @@ func cleanRule34ArtTitle(value string) string {
 		value = strings.TrimSuffix(value, suffix)
 	}
 	return strings.TrimSpace(value)
+}
+
+func setRule34ArtHeaders(req *http.Request, referer, accept string) {
+	if req == nil {
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	if strings.TrimSpace(accept) != "" {
+		req.Header.Set("Accept", accept)
+	}
+	if strings.TrimSpace(referer) != "" {
+		req.Header.Set("Referer", referer)
+	}
+}
+
+func isRule34ArtBlockedStatus(status int) bool {
+	return status == http.StatusForbidden ||
+		status == http.StatusUnauthorized ||
+		status == http.StatusTooManyRequests
 }

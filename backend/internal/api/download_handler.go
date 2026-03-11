@@ -155,15 +155,69 @@ func (h *DownloadHandler) Update(c *gin.Context) {
 		return
 	}
 
+	var job models.DownloadJob
+	if err := h.db.Get(&job, `
+		SELECT * FROM download_jobs
+		WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+	`, id, userID); err != nil {
+		respondError(c, http.StatusNotFound, "download job not found")
+		return
+	}
+
 	switch body.Action {
 	case "pause":
-		h.db.Exec(`UPDATE download_jobs SET status = 'paused',  updated_at = NOW() WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
+		if job.Status != models.DownloadStatusQueued && job.Status != models.DownloadStatusDownloading {
+			respondError(c, http.StatusConflict, "download can only be paused while queued or downloading")
+			return
+		}
+		h.db.Exec(`UPDATE download_jobs SET status = 'paused', updated_at = NOW() WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	case "resume":
-		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW() WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
+		if job.Status != models.DownloadStatusPaused {
+			respondError(c, http.StatusConflict, "download can only be resumed from paused state")
+			return
+		}
+		h.db.Exec(`
+			UPDATE download_jobs
+			SET status = 'queued',
+				progress = 0,
+				total_files = 0,
+				downloaded_files = 0,
+				total_bytes = 0,
+				downloaded_bytes = 0,
+				error_message = '',
+				completed_at = NULL,
+				updated_at = NOW()
+			WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+		`, id, userID) //nolint:errcheck
 	case "cancel":
-		h.db.Exec(`UPDATE download_jobs SET status = 'failed',  updated_at = NOW(), error_message = 'cancelled by user' WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
+		if job.Status == models.DownloadStatusCompleted {
+			respondError(c, http.StatusConflict, "completed downloads cannot be cancelled")
+			return
+		}
+		h.db.Exec(`UPDATE download_jobs SET status = 'failed', updated_at = NOW(), error_message = 'cancelled by user' WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	case "retry":
-		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW(), error_message = '', retry_count = 0 WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
+		if job.Status != models.DownloadStatusFailed {
+			respondError(c, http.StatusConflict, "download can only be retried after it failed")
+			return
+		}
+		h.db.Exec(`
+			UPDATE download_jobs
+			SET status = 'queued',
+				progress = 0,
+				total_files = 0,
+				downloaded_files = 0,
+				total_bytes = 0,
+				downloaded_bytes = 0,
+				error_message = '',
+				completed_at = NULL,
+				updated_at = NOW()
+			WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+		`, id, userID) //nolint:errcheck
+	case "":
+		// no-op, target directory update handled below
+	default:
+		respondError(c, http.StatusBadRequest, "unknown download action")
+		return
 	}
 	if body.TargetDirectory != nil {
 		targetDirectory, err := downloader.NormalizeTargetDirectory(*body.TargetDirectory, h.downloadsDir, h.mediaPath)

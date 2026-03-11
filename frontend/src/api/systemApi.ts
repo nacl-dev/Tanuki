@@ -1,5 +1,13 @@
 import client from './client'
 
+export interface PathHealth {
+  path: string
+  exists: boolean
+  is_dir?: boolean
+  writable?: boolean
+  error?: string
+}
+
 export interface SystemInfo {
   version: string
   media_count: number
@@ -17,11 +25,18 @@ export interface SystemInfo {
   downloads_path: string
   thumbnails_path: string
   inbox_path: string
+  path_health: Record<string, PathHealth>
   scan_interval: number
   max_concurrent_downloads: number
   rate_limit_delay: number
   plugins_enabled: boolean
   registration_enabled: boolean
+  library_scope: string
+  tag_scope: string
+  collection_scope: string
+  download_scope: string
+  schedule_scope: string
+  owner_mode: string
 }
 
 export const systemApi = {

@@ -1,20 +1,27 @@
 <template>
   <div class="duplicates-page">
     <div class="page-header" :class="{ 'page-header--embedded': embedded }">
-      <h2 class="page-title">🔍 Duplicate Detection</h2>
+      <div>
+        <h2 class="page-title">
+          <AppIcon name="search" :size="18" />
+          Duplicate Detection
+        </h2>
+        <p class="page-copy">Review perceptual matches in batches, keep the best source, and merge tags before cleanup.</p>
+      </div>
       <button class="btn btn-primary" :disabled="store.loading" @click="store.fetchGroups()">
-        {{ store.loading ? '⏳ Scanning…' : '🔄 Refresh' }}
+        <AppIcon name="refresh" :size="14" />
+        {{ store.loading ? 'Scanning…' : 'Refresh' }}
       </button>
     </div>
 
     <div v-if="store.error" class="error-banner">
-      ⚠️ {{ store.error }}
+      {{ store.error }}
     </div>
 
     <div v-if="store.loading" class="loading">Loading duplicate groups…</div>
 
     <div v-else-if="store.groups.length === 0" class="empty-state">
-      <p>🎉 No duplicates found in your library!</p>
+      <p>No duplicates found in your library.</p>
       <p class="sub">
         Make sure perceptual hashes have been computed.
         They are automatically generated when <code>PHASH_ON_SCAN=true</code> (default).
@@ -36,6 +43,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useDedupStore } from '@/stores/dedupStore'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 import DuplicateGroup from '@/components/Duplicates/DuplicateGroup.vue'
 
 withDefaults(defineProps<{ embedded?: boolean }>(), {
@@ -64,13 +72,28 @@ async function onResolved(keepId: string, deleteIds: string[], mergeTags: boolea
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 .page-header--embedded .page-title {
   font-size: 18px;
 }
 
-.page-title { font-size: 22px; font-weight: 700; }
+.page-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.page-copy {
+  margin-top: 6px;
+  max-width: 720px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
 
 .error-banner {
   background: rgba(239, 68, 68, 0.15);

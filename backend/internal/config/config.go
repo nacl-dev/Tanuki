@@ -36,6 +36,8 @@ type Config struct {
 	// Download manager
 	MaxConcurrentDownloads int
 	RateLimitDelay         int // milliseconds
+	DownloaderCookiesFile  string
+	YtDlpImpersonate       string
 
 	// Auto-tagging (v0.4)
 	SauceNAOAPIKey             string
@@ -74,6 +76,8 @@ func Load() (*Config, error) {
 		ScanInterval:           getEnvInt("SCAN_INTERVAL", 300),
 		MaxConcurrentDownloads: getEnvInt("MAX_CONCURRENT_DOWNLOADS", 3),
 		RateLimitDelay:         getEnvInt("RATE_LIMIT_DELAY", 1000),
+		DownloaderCookiesFile:  getEnv("DOWNLOADER_COOKIES_FILE", ""),
+		YtDlpImpersonate:       getEnv("YTDLP_IMPERSONATE", "chrome"),
 
 		// Auto-tagging (v0.4)
 		SauceNAOAPIKey:             getEnv("SAUCENAO_API_KEY", ""),

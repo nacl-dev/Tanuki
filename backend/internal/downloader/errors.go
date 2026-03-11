@@ -1,6 +1,9 @@
 package downloader
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type unsupportedURLError struct {
 	engine string
@@ -21,4 +24,16 @@ func newUnsupportedURLError(engine, detail string) error {
 func isUnsupportedURLError(err error) bool {
 	_, ok := err.(*unsupportedURLError)
 	return ok
+}
+
+func blockedSourceDetail(status int) string {
+	return fmt.Sprintf("remote source blocked the request with status %d; export browser cookies and set DOWNLOADER_COOKIES_FILE if this source requires browser validation", status)
+}
+
+func blockedChallengeDetail(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		summary = "remote source blocked the request"
+	}
+	return fmt.Sprintf("%s; export browser cookies and set DOWNLOADER_COOKIES_FILE if this source requires browser validation", summary)
 }

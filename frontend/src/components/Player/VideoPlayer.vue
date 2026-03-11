@@ -21,55 +21,93 @@
       @loadedmetadata="onMetadata"
       @waiting="buffering = true"
       @canplay="buffering = false"
+      @play="playing = true"
+      @pause="playing = false"
     />
 
-    <!-- Buffering spinner -->
-    <div v-if="buffering" class="vp-spinner">⟳</div>
+    <div v-if="buffering" class="vp-spinner" aria-hidden="true">
+      <AppIcon name="refresh" :size="34" class="vp-spinner-icon" />
+    </div>
 
-    <!-- Controls overlay -->
     <div class="vp-controls" @click.stop>
-      <!-- Progress bar -->
-      <div
-        class="vp-progress"
-        ref="progressBar"
-        @mousedown="onSeekStart"
-        @click="onSeekClick"
-      >
+      <div class="vp-progress" ref="progressBar" @mousedown="onSeekStart" @click="onSeekClick">
         <div class="vp-progress-track">
           <div class="vp-progress-fill" :style="{ width: progressPct + '%' }" />
           <div class="vp-progress-thumb" :style="{ left: progressPct + '%' }" />
         </div>
       </div>
 
-      <!-- Bottom row -->
       <div class="vp-bar">
-        <!-- Left group -->
         <div class="vp-bar-left">
-          <button type="button" class="vp-btn" :aria-label="playing ? 'Pause video' : 'Play video'" @click="togglePlay" :title="playing ? 'Pause (Space)' : 'Play (Space)'">
-            {{ playing ? '⏸' : '▶' }}
+          <button type="button" class="vp-btn" aria-label="Rewind 10 seconds" title="Back 10s (J)" @click="seek(-10)">
+            <AppIcon name="rewind" :size="18" />
           </button>
+          <button
+            type="button"
+            class="vp-btn"
+            :aria-label="playing ? 'Pause video' : 'Play video'"
+            :title="playing ? 'Pause (Space)' : 'Play (Space)'"
+            @click="togglePlay"
+          >
+            <AppIcon :name="playing ? 'pause' : 'play'" :size="18" />
+          </button>
+          <button type="button" class="vp-btn" aria-label="Forward 10 seconds" title="Forward 10s (L)" @click="seek(10)">
+            <AppIcon name="forward" :size="18" />
+          </button>
+
           <div class="vp-volume">
-            <button type="button" class="vp-btn" :aria-label="muted ? 'Unmute video' : 'Mute video'" @click="toggleMute" :title="muted ? 'Unmute (M)' : 'Mute (M)'">
-              {{ muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊' }}
+            <button
+              type="button"
+              class="vp-btn"
+              :aria-label="muted ? 'Unmute video' : 'Mute video'"
+              :title="muted ? 'Unmute (M)' : 'Mute (M)'"
+              @click="toggleMute"
+            >
+              <AppIcon :name="volumeIcon" :size="18" />
             </button>
             <input
               class="vp-slider vp-volume-slider"
               type="range"
-              min="0" max="1" step="0.02"
+              min="0"
+              max="1"
+              step="0.02"
               :value="muted ? 0 : volume"
               @input="onVolumeInput"
             />
           </div>
-          <span class="vp-time">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
+
+          <button
+            type="button"
+            class="vp-time vp-time-btn"
+            :title="showRemaining ? 'Show elapsed / total time' : 'Show time remaining'"
+            @click="showRemaining = !showRemaining"
+          >
+            {{ timeLabel }}
+          </button>
         </div>
 
-        <!-- Right group -->
         <div class="vp-bar-right">
-          <select class="vp-speed" :value="playbackRate" @change="onSpeedChange" title="Playback speed">
+          <select class="vp-speed" :value="playbackRate" title="Playback speed" @change="onSpeedChange">
             <option v-for="s in speeds" :key="s" :value="s">{{ s }}x</option>
           </select>
-          <button type="button" class="vp-btn" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'" @click="toggleFullscreen" :title="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
-            {{ isFullscreen ? '⊠' : '⛶' }}
+          <button
+            v-if="supportsPictureInPicture"
+            type="button"
+            class="vp-btn"
+            :aria-label="isPictureInPicture ? 'Exit picture in picture' : 'Enter picture in picture'"
+            :title="isPictureInPicture ? 'Exit Picture-in-Picture (I)' : 'Picture-in-Picture (I)'"
+            @click="togglePictureInPicture"
+          >
+            <AppIcon name="pip" :size="18" />
+          </button>
+          <button
+            type="button"
+            class="vp-btn"
+            :aria-label="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
+            :title="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'"
+            @click="toggleFullscreen"
+          >
+            <AppIcon :name="isFullscreen ? 'collapse' : 'expand'" :size="18" />
           </button>
         </div>
       </div>
@@ -78,7 +116,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import AppIcon from '@/components/Layout/AppIcon.vue'
+
+const PLAYER_SETTINGS_KEY = 'tanuki:video-player:settings'
 
 const props = defineProps<{
   src: string
@@ -102,7 +143,9 @@ const duration = ref(0)
 const volume = ref(1)
 const muted = ref(false)
 const playbackRate = ref(1)
+const showRemaining = ref(false)
 const isFullscreen = ref(false)
+const isPictureInPicture = ref(false)
 const buffering = ref(false)
 const controlsHidden = ref(false)
 
@@ -112,15 +155,77 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null
 let seekDragging = false
 let resumeApplied = false
 
-const progressPct = computed(() =>
-  duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0,
-)
+const progressPct = computed(() => (duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0))
+const volumeIcon = computed<'volumeOff' | 'volumeLow' | 'volumeHigh'>(() => {
+  if (muted.value || volume.value === 0) return 'volumeOff'
+  if (volume.value < 0.5) return 'volumeLow'
+  return 'volumeHigh'
+})
+const timeLabel = computed(() => {
+  if (showRemaining.value && duration.value > 0) {
+    return `${formatTime(Math.max(0, duration.value - currentTime.value))} left`
+  }
+  return `${formatTime(currentTime.value)} / ${formatTime(duration.value)}`
+})
+const supportsPictureInPicture = computed(() => {
+  if (typeof document === 'undefined') return false
+  const pipVideo = video.value as (HTMLVideoElement & { disablePictureInPicture?: boolean }) | undefined
+  return Boolean(document.pictureInPictureEnabled && pipVideo && !pipVideo.disablePictureInPicture)
+})
 
 function onActivity() {
   controlsHidden.value = false
   if (hideTimer) clearTimeout(hideTimer)
   if (playing.value) {
-    hideTimer = setTimeout(() => { controlsHidden.value = true }, 3000)
+    hideTimer = setTimeout(() => {
+      controlsHidden.value = true
+    }, 3000)
+  }
+}
+
+function persistSettings() {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    PLAYER_SETTINGS_KEY,
+    JSON.stringify({
+      volume: volume.value,
+      muted: muted.value,
+      playbackRate: playbackRate.value,
+      showRemaining: showRemaining.value,
+    }),
+  )
+}
+
+function applySavedSettings() {
+  const v = video.value
+  if (!v || typeof window === 'undefined') return
+  try {
+    const raw = window.localStorage.getItem(PLAYER_SETTINGS_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as {
+      volume?: number
+      muted?: boolean
+      playbackRate?: number
+      showRemaining?: boolean
+    }
+    if (typeof parsed.volume === 'number') {
+      const nextVolume = Math.max(0, Math.min(1, parsed.volume))
+      v.volume = nextVolume
+      volume.value = nextVolume
+    }
+    if (typeof parsed.muted === 'boolean') {
+      v.muted = parsed.muted
+      muted.value = parsed.muted
+    }
+    if (typeof parsed.playbackRate === 'number' && speeds.includes(parsed.playbackRate)) {
+      v.playbackRate = parsed.playbackRate
+      playbackRate.value = parsed.playbackRate
+    }
+    if (typeof parsed.showRemaining === 'boolean') {
+      showRemaining.value = parsed.showRemaining
+    }
+  } catch {
+    // Ignore invalid local settings.
   }
 }
 
@@ -128,12 +233,10 @@ function togglePlay() {
   const v = video.value
   if (!v) return
   if (v.paused) {
-    v.play()
-    playing.value = true
+    void v.play()
     onActivity()
   } else {
     v.pause()
-    playing.value = false
     controlsHidden.value = false
     if (hideTimer) clearTimeout(hideTimer)
   }
@@ -148,6 +251,7 @@ function toggleMute() {
   if (!v) return
   v.muted = !v.muted
   muted.value = v.muted
+  persistSettings()
 }
 
 function onVolumeInput(e: Event) {
@@ -158,6 +262,7 @@ function onVolumeInput(e: Event) {
   volume.value = val
   v.muted = val === 0
   muted.value = val === 0
+  persistSettings()
 }
 
 function onSpeedChange(e: Event) {
@@ -166,6 +271,7 @@ function onSpeedChange(e: Event) {
   const rate = parseFloat((e.target as HTMLSelectElement).value)
   v.playbackRate = rate
   playbackRate.value = rate
+  persistSettings()
 }
 
 function seek(secs: number) {
@@ -186,7 +292,11 @@ function changeVolume(delta: number) {
   const newVol = Math.max(0, Math.min(1, v.volume + delta))
   v.volume = newVol
   volume.value = newVol
-  if (newVol > 0) { v.muted = false; muted.value = false }
+  if (newVol > 0) {
+    v.muted = false
+    muted.value = false
+  }
+  persistSettings()
 }
 
 function changeSpeed(delta: number) {
@@ -196,15 +306,32 @@ function changeSpeed(delta: number) {
   const next = Math.max(0, Math.min(speeds.length - 1, idx + delta))
   v.playbackRate = speeds[next]
   playbackRate.value = speeds[next]
+  persistSettings()
 }
 
 function toggleFullscreen() {
   const el = container.value
   if (!el) return
   if (!document.fullscreenElement) {
-    el.requestFullscreen().then(() => { isFullscreen.value = true })
+    void el.requestFullscreen().then(() => {
+      isFullscreen.value = true
+    })
   } else {
-    document.exitFullscreen().then(() => { isFullscreen.value = false })
+    void document.exitFullscreen().then(() => {
+      isFullscreen.value = false
+    })
+  }
+}
+
+async function togglePictureInPicture() {
+  const v = video.value as (HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }) | undefined
+  if (!v || !supportsPictureInPicture.value) return
+  if (document.pictureInPictureElement === v) {
+    await document.exitPictureInPicture()
+    return
+  }
+  if (v.requestPictureInPicture) {
+    await v.requestPictureInPicture()
   }
 }
 
@@ -280,6 +407,13 @@ function onKey(e: KeyboardEvent) {
       e.preventDefault()
       toggleFullscreen()
       break
+    case 'i':
+    case 'I':
+      if (supportsPictureInPicture.value) {
+        e.preventDefault()
+        void togglePictureInPicture()
+      }
+      break
     case '<':
       e.preventDefault()
       changeSpeed(-1)
@@ -303,8 +437,7 @@ function onMetadata() {
   const v = video.value
   if (!v) return
   duration.value = v.duration
-  volume.value = v.volume
-  muted.value = v.muted
+  applySavedSettings()
   if (!resumeApplied && (props.initialTime ?? 0) > 0) {
     const safeTime = Math.max(0, Math.min(props.initialTime ?? 0, Math.max(0, (v.duration || 0) - 2)))
     if (safeTime > 0) {
@@ -339,21 +472,41 @@ function onFullscreenChange() {
   isFullscreen.value = !!document.fullscreenElement
 }
 
+function onEnterPictureInPicture() {
+  isPictureInPicture.value = true
+}
+
+function onLeavePictureInPicture() {
+  isPictureInPicture.value = false
+}
+
 onMounted(() => {
   document.addEventListener('fullscreenchange', onFullscreenChange)
+  video.value?.addEventListener('enterpictureinpicture', onEnterPictureInPicture)
+  video.value?.addEventListener('leavepictureinpicture', onLeavePictureInPicture)
+  applySavedSettings()
   container.value?.focus()
 })
 
-watch(() => props.src, () => {
-  resumeApplied = false
-  playing.value = false
-  buffering.value = false
-  currentTime.value = 0
-  duration.value = 0
+watch(
+  () => props.src,
+  () => {
+    resumeApplied = false
+    playing.value = false
+    buffering.value = false
+    currentTime.value = 0
+    duration.value = 0
+  },
+)
+
+watch(showRemaining, () => {
+  persistSettings()
 })
 
 onUnmounted(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
+  video.value?.removeEventListener('enterpictureinpicture', onEnterPictureInPicture)
+  video.value?.removeEventListener('leavepictureinpicture', onLeavePictureInPicture)
   if (hideTimer) clearTimeout(hideTimer)
 })
 </script>
@@ -392,23 +545,26 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 40px;
-  color: rgba(255,255,255,0.6);
-  animation: spin 1s linear infinite;
+  color: rgba(255, 255, 255, 0.6);
   pointer-events: none;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.vp-spinner-icon {
+  animation: spin 1s linear infinite;
 }
 
-/* Controls overlay */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .vp-controls {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
   padding: 12px 12px 8px;
   transition: opacity 0.25s;
   opacity: 1;
@@ -419,7 +575,6 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* Progress bar */
 .vp-progress {
   padding: 6px 0;
   cursor: pointer;
@@ -428,14 +583,16 @@ onUnmounted(() => {
 .vp-progress-track {
   position: relative;
   height: 4px;
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 2px;
   overflow: visible;
 }
 
 .vp-progress-fill {
   position: absolute;
-  top: 0; left: 0; height: 100%;
+  top: 0;
+  left: 0;
+  height: 100%;
   background: #f59e0b;
   border-radius: 2px;
   pointer-events: none;
@@ -457,7 +614,6 @@ onUnmounted(() => {
   transform: translate(-50%, -50%) scale(1.3);
 }
 
-/* Bottom bar */
 .vp-bar {
   display: flex;
   align-items: center;
@@ -474,6 +630,9 @@ onUnmounted(() => {
 }
 
 .vp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: #fff;
@@ -484,12 +643,19 @@ onUnmounted(() => {
   transition: color 0.15s;
 }
 
-.vp-btn:hover { color: #f59e0b; }
+.vp-btn:hover {
+  color: #f59e0b;
+}
+
+.vp-btn :deep(.app-icon) {
+  display: block;
+}
 
 .vp-btn:focus-visible,
 .vp-slider:focus-visible,
 .vp-speed:focus-visible,
-.vp-progress:focus-visible {
+.vp-progress:focus-visible,
+.vp-time-btn:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -505,7 +671,7 @@ onUnmounted(() => {
   appearance: none;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255,255,255,0.3);
+  background: rgba(255, 255, 255, 0.3);
   cursor: pointer;
   outline: none;
 }
@@ -519,7 +685,9 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.vp-volume-slider { width: 72px; }
+.vp-volume-slider {
+  width: 72px;
+}
 
 .vp-time {
   font-size: 12px;
@@ -528,9 +696,16 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+.vp-time-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
 .vp-speed {
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
   font-size: 12px;
   padding: 2px 4px;
@@ -538,7 +713,26 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.vp-speed:focus { outline: none; border-color: #f59e0b; }
+.vp-speed:focus {
+  outline: none;
+  border-color: #f59e0b;
+}
 
-.vp-speed option { background: #222; color: #fff; }
+.vp-speed option {
+  background: #222;
+  color: #fff;
+}
+
+@media (max-width: 760px) {
+  .vp-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .vp-bar-left,
+  .vp-bar-right {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+}
 </style>

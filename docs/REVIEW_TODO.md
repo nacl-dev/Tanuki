@@ -41,10 +41,10 @@ Diese Liste fasst alle Findings aus der Projekt-Review in eine priorisierte, ums
 - [x] Scan, Organize und Auto-Tag als echte Background-Jobs mit Status behandeln.
   Statt synchronen UI-Aktionen lieber Queue/Job-Modell mit Fortschritt, Fehlerstatus und Retry.
 
-- [ ] Ownership-Modell klaeren.
+- [x] Ownership-Modell klaeren.
   Entscheiden, ob Tanuki eine geteilte Bibliothek oder echte Multi-User-Isolation haben soll, und `owner_id` entsprechend konsequent nutzen oder entfernen.
 
-- [ ] Remote-Dateioperationen und Pfadverwendung allgemein haerten.
+- [x] Remote-Dateioperationen und Pfadverwendung allgemein haerten.
   Alle usernahen Dateipfade zentral validieren und auf erlaubte Arbeitsbereiche begrenzen.
 
 - [x] Settings-Seite ehrlich machen.
@@ -104,7 +104,7 @@ Diese Liste fasst alle Findings aus der Projekt-Review in eine priorisierte, ums
 - [x] Vite/esbuild-Toolchain aktualisieren.
   `npm audit` meldet aktuell moderate Findings in der Build-/Dev-Chain.
 
-- [ ] Observability verbessern.
+- [x] Observability verbessern.
   Request-IDs, strukturierte Fehlercodes, bessere Logs und kleine Admin-Health-Ansichten ergaenzen.
 
 ## Docs / Config

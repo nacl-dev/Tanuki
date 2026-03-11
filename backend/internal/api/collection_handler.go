@@ -67,7 +67,7 @@ func (h *CollectionHandler) List(c *gin.Context) {
 		SELECT c.*, 0 AS item_count
 		FROM collections c
 		WHERE c.user_id = $1 OR c.user_id IS NULL
-		ORDER BY c.updated_at DESC, c.name ASC
+		ORDER BY LOWER(c.name) ASC, c.created_at ASC
 	`, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "query collections: "+err.Error())
 		return
@@ -273,7 +273,7 @@ func (h *CollectionHandler) ListForMedia(c *gin.Context) {
 		) THEN 1 ELSE 0 END AS item_count
 		FROM collections c
 		WHERE c.user_id = $1 OR c.user_id IS NULL
-		ORDER BY c.updated_at DESC, c.name ASC
+		ORDER BY LOWER(c.name) ASC, c.created_at ASC
 	`, userID, mediaID); err != nil {
 		respondError(c, http.StatusInternalServerError, "query media collections: "+err.Error())
 		return
@@ -302,15 +302,18 @@ func (h *CollectionHandler) countCollectionItems(collectionID string) (int, erro
 func (h *CollectionHandler) listCollectionItems(collectionID string) ([]models.Media, error) {
 	var items []models.Media
 	err := h.db.Select(&items, fmt.Sprintf(`
-		SELECT DISTINCT m.*
-		FROM media m
-		LEFT JOIN media_collections cm
-			ON cm.media_id = m.id AND cm.collection_id = $1
-		CROSS JOIN collections c
-		WHERE c.id = $1
-		  AND m.deleted_at IS NULL
-		  AND (%s)
-		ORDER BY m.created_at DESC
+		SELECT items.*
+		FROM (
+			SELECT DISTINCT m.*
+			FROM media m
+			LEFT JOIN media_collections cm
+				ON cm.media_id = m.id AND cm.collection_id = $1
+			CROSS JOIN collections c
+			WHERE c.id = $1
+			  AND m.deleted_at IS NULL
+			  AND (%s)
+		) AS items
+		ORDER BY LOWER(items.title) ASC, items.title ASC, items.id ASC
 	`, collectionMatchPredicateSQL), collectionID)
 	if err != nil {
 		return nil, err
@@ -414,7 +417,7 @@ func (h *CollectionHandler) loadCollectionPreviews(collectionIDs []string, limit
 				m.type,
 				m.thumbnail_path,
 				m.updated_at,
-				ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY m.created_at DESC, m.id DESC) AS rn
+				ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY LOWER(m.title) ASC, m.title ASC, m.id ASC) AS rn
 			FROM target_collections c
 			JOIN media m
 				ON m.deleted_at IS NULL

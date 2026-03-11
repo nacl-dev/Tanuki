@@ -1,10 +1,19 @@
 <template>
   <div class="download-form card">
-    <h3 class="form-title">Add Download</h3>
+    <div class="form-header">
+      <div class="form-icon">
+        <AppIcon name="download" :size="18" />
+      </div>
+      <div>
+        <h3 class="form-title">Add Download</h3>
+        <p class="form-copy">Queue a single URL or paste a batch of links into the same target root.</p>
+      </div>
+    </div>
 
     <div class="form-field">
-      <label>URL</label>
+      <label for="download-url">URL</label>
       <input
+        id="download-url"
         v-model="url"
         type="url"
         placeholder="https://example.com/gallery/123"
@@ -13,8 +22,9 @@
     </div>
 
     <div class="form-field">
-      <label>Target Root (optional)</label>
+      <label for="download-target">Target Root (optional)</label>
       <input
+        id="download-target"
         v-model="targetDir"
         type="text"
         placeholder="/media"
@@ -26,13 +36,14 @@
       <button type="button" class="btn btn-primary" :disabled="!url || loading" @click="submit">
         {{ loading ? 'Adding…' : 'Add Download' }}
       </button>
-      <button type="button" class="btn btn-ghost" @click="openBatch">Batch</button>
+      <button type="button" class="btn btn-ghost" @click="openBatch">
+        {{ batchMode ? 'Hide Batch' : 'Paste Batch' }}
+      </button>
     </div>
 
-    <!-- Batch input -->
     <div v-if="batchMode" class="form-field">
-      <label>URLs (one per line)</label>
-      <textarea v-model="batchUrls" rows="5" class="input" placeholder="https://…"></textarea>
+      <label for="download-batch">URLs (one per line)</label>
+      <textarea id="download-batch" v-model="batchUrls" rows="5" class="input" placeholder="https://…"></textarea>
       <button type="button" class="btn btn-primary" @click="submitBatch">Add all</button>
     </div>
   </div>
@@ -41,6 +52,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useDownloadStore } from '@/stores/downloadStore'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 
 const store = useDownloadStore()
 const url = ref('')
@@ -76,7 +88,25 @@ async function submitBatch() {
 
 <style scoped>
 .download-form { display: flex; flex-direction: column; gap: 16px; }
+.form-header { display: flex; align-items: flex-start; gap: 12px; }
+.form-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 .form-title { font-size: 16px; font-weight: 600; }
+.form-copy {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
 .form-field { display: flex; flex-direction: column; gap: 6px; }
 .form-field label { font-size: 12px; color: var(--text-secondary); }
 .form-row { display: flex; gap: 8px; }

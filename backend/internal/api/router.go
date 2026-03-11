@@ -20,7 +20,6 @@ import (
 func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistry *plugins.Registry, log *zap.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(gin.Logger())
 	r.Use(func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {
@@ -29,6 +28,21 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 		c.Set("requestID", requestID)
 		c.Header("X-Request-ID", requestID)
 		c.Next()
+	})
+	r.Use(func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+
+		log.Info("http request",
+			zap.String("request_id", c.GetString("requestID")),
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.FullPath()),
+			zap.String("raw_path", c.Request.URL.Path),
+			zap.Int("status", c.Writer.Status()),
+			zap.Duration("duration", time.Since(start)),
+			zap.String("client_ip", c.ClientIP()),
+			zap.String("user_id", c.GetString("userID")),
+		)
 	})
 
 	// ─── CORS (development convenience) ──────────────────────────────────────
@@ -69,7 +83,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 		protected := apiGroup.Group("", auth.AuthRequired(cfg.JWTSecret))
 		{
 			// Media
-			mh := &MediaHandler{db: db, thumbPath: cfg.ThumbnailsPath}
+			mh := &MediaHandler{db: db, mediaPath: cfg.MediaPath, thumbPath: cfg.ThumbnailsPath}
 			ch := &CollectionHandler{db: db}
 			media := protected.Group("/media")
 			{
@@ -197,6 +211,12 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				_ = db.Get(&autoTagPending, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL AND auto_tag_status IN ('pending', 'processing')`)
 				var lastCompletedDownload *time.Time
 				_ = db.Get(&lastCompletedDownload, `SELECT completed_at FROM download_jobs WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1`)
+				pathHealth := gin.H{
+					"media":      pathStatus(cfg.MediaPath),
+					"downloads":  pathStatus(cfg.DownloadsPath),
+					"thumbnails": pathStatus(cfg.ThumbnailsPath),
+					"inbox":      pathStatus(cfg.InboxPath),
+				}
 				taskSummary := taskManager.Summary()
 				respondOK(c, gin.H{
 					"version":                  "1.0.0",
@@ -215,11 +235,18 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 					"downloads_path":           cfg.DownloadsPath,
 					"thumbnails_path":          cfg.ThumbnailsPath,
 					"inbox_path":               cfg.InboxPath,
+					"path_health":              pathHealth,
 					"scan_interval":            cfg.ScanInterval,
 					"max_concurrent_downloads": cfg.MaxConcurrentDownloads,
 					"rate_limit_delay":         cfg.RateLimitDelay,
 					"plugins_enabled":          cfg.PluginsEnabled,
 					"registration_enabled":     cfg.RegistrationEnabled,
+					"library_scope":            "shared",
+					"tag_scope":                "shared",
+					"collection_scope":         "personal",
+					"download_scope":           "personal",
+					"schedule_scope":           "personal",
+					"owner_mode":               "shared_library_owner_id_unused",
 				}, nil)
 			})
 		}

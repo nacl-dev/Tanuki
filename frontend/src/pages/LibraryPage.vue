@@ -79,8 +79,11 @@
           v-if="store.filters.min_rating"
           type="button"
           class="clear-rating"
+          aria-label="Clear minimum rating"
           @click="store.setFilter('min_rating', undefined)"
-        >✕</button>
+        >
+          <AppIcon name="close" :size="11" />
+        </button>
         <div class="sort-select-wrap">
           <select
             class="sort-select"
@@ -130,12 +133,12 @@
         </button>
       </div>
 
-      <div v-if="expandedCollection" class="library-collections__expanded">
+      <div v-if="expandedCollectionId" class="library-collections__expanded">
         <div class="library-collections__expanded-head">
-          <h3>{{ expandedCollection.name }}</h3>
+          <h3>{{ expandedCollection?.name ?? 'Collection' }}</h3>
           <button class="btn btn-ghost btn-sm" @click="expandedCollectionId = ''">Close</button>
         </div>
-        <MediaGrid :items="expandedCollection.items ?? []" :loading="false" :density="gridDensity" />
+        <MediaGrid :items="expandedCollection?.items ?? []" :loading="expandedCollectionLoading" :density="gridDensity" />
       </div>
     </section>
 
@@ -150,7 +153,17 @@
             <span class="gallery-count">{{ shelf.kicker }}</span>
             <h3>{{ shelf.title }}</h3>
           </div>
-          <span class="shelf-card__count">{{ shelf.items.length }}</span>
+        </div>
+        <div class="shelf-card__meta">
+          <span class="shelf-card__count">{{ shelf.visibleCount }}</span>
+          <button
+            v-if="shelf.expandable"
+            type="button"
+            class="btn btn-ghost btn-sm"
+            @click="toggleContinueShelf"
+          >
+            {{ continueExpanded ? 'Show less' : `Show more (${shelf.totalCount})` }}
+          </button>
         </div>
         <MediaGrid :items="shelf.items" :loading="false" :density="gridDensity" />
       </article>
@@ -201,6 +214,7 @@ import { collectionApi, type Collection } from '@/api/collectionApi'
 import { libraryApi } from '@/api/libraryApi'
 import { mediaApi, mediaAssetUrl, type Media } from '@/api/mediaApi'
 import { taskApi, type BackgroundTask } from '@/api/taskApi'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 import { useNoticeStore } from '@/stores/noticeStore'
 
 const store = useMediaStore()
@@ -209,6 +223,8 @@ const { pushNotice } = useNoticeStore()
 const hoveredRating = ref<number | null>(null)
 const collections = ref<Collection[]>([])
 const expandedCollectionId = ref('')
+const expandedCollection = ref<Collection | null>(null)
+const expandedCollectionLoading = ref(false)
 const scanning = ref(false)
 const tagging = ref(false)
 const continueItems = ref<Media[]>([])
@@ -217,6 +233,7 @@ const favoriteItems = ref<Media[]>([])
 const tasks = ref<BackgroundTask[]>([])
 const hadActiveTasks = ref(false)
 const gridDensity = ref<'cozy' | 'compact'>('cozy')
+const continueExpanded = ref(false)
 let taskPollTimer: number | null = null
 
 const types = [
@@ -267,48 +284,92 @@ function previewTileStyle(index: number, count: number) {
 }
 
 function toggleCollection(id: string) {
-  expandedCollectionId.value = expandedCollectionId.value === id ? '' : id
+  if (expandedCollectionId.value === id) {
+    expandedCollectionId.value = ''
+    expandedCollection.value = null
+    return
+  }
+  expandedCollectionId.value = id
+  void loadExpandedCollection(id)
 }
-
-const expandedCollection = computed(() =>
-  collections.value.find((collection) => collection.id === expandedCollectionId.value) ?? null,
-)
 const quickShelves = computed(() => [
   {
     key: 'continue',
     kicker: 'Continue',
     title: 'Pick up where you left off',
-    items: continueItems.value,
+    items: continueExpanded.value ? continueItems.value : continueItems.value.slice(0, 3),
+    visibleCount: continueExpanded.value ? continueItems.value.length : Math.min(continueItems.value.length, 3),
+    totalCount: continueItems.value.length,
+    expandable: continueItems.value.length > 3,
   },
   {
     key: 'favorites',
     kicker: 'Favorites',
     title: 'Fast access to your saved picks',
     items: favoriteItems.value,
+    visibleCount: favoriteItems.value.length,
+    totalCount: favoriteItems.value.length,
+    expandable: false,
   },
   {
     key: 'recent',
     kicker: 'Recent',
     title: 'Newest additions to the vault',
-    items: recentItems.value,
+    items: recentItems.value.slice(0, 3),
+    visibleCount: Math.min(recentItems.value.length, 3),
+    totalCount: recentItems.value.length,
+    expandable: false,
   },
 ].filter((section) => section.items.length > 0))
-const recentTasks = computed(() => tasks.value.slice(0, 4))
+const recentTasks = computed(() =>
+  tasks.value
+    .filter((task) => task.status !== 'completed')
+    .slice(0, 4),
+)
 
 async function loadCollections() {
   const res = await collectionApi.list()
   collections.value = res.data ?? []
 }
 
+async function loadExpandedCollection(id: string) {
+  expandedCollectionLoading.value = true
+  try {
+    const res = await collectionApi.get(id)
+    if (expandedCollectionId.value !== id) return
+    expandedCollection.value = {
+      ...res.data,
+      items: res.data.items ?? [],
+    }
+  } catch (error) {
+    pushNotice({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to load collection items',
+    })
+    if (expandedCollectionId.value === id) {
+      expandedCollectionId.value = ''
+      expandedCollection.value = null
+    }
+  } finally {
+    if (expandedCollectionId.value === id) {
+      expandedCollectionLoading.value = false
+    }
+  }
+}
+
 async function loadQuickShelves() {
   const [continueRes, favoriteRes, recentRes] = await Promise.all([
-    mediaApi.list({ limit: 6, in_progress: true, sort: 'newest' }),
+    mediaApi.list({ limit: 12, in_progress: true, sort: 'newest' }),
     mediaApi.list({ limit: 6, favorite: true, sort: 'rating' }),
-    mediaApi.list({ limit: 6, sort: 'newest' }),
+    mediaApi.list({ limit: 3, sort: 'newest' }),
   ])
   continueItems.value = continueRes.data ?? []
   favoriteItems.value = favoriteRes.data ?? []
   recentItems.value = recentRes.data ?? []
+}
+
+function toggleContinueShelf() {
+  continueExpanded.value = !continueExpanded.value
 }
 
 async function refreshLibrarySurfaces() {
@@ -721,6 +782,13 @@ watch(
 .shelf-card__head {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shelf-card__meta {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }

@@ -17,9 +17,10 @@ import (
 
 // GalleryDLEngine wraps the gallery-dl CLI tool.
 type GalleryDLEngine struct {
-	configPath string
-	log        *zap.Logger
-	progress   func(id string, downloaded, total int64, files, totalFiles int)
+	configPath  string
+	cookiesPath string
+	log         *zap.Logger
+	progress    func(id string, downloaded, total int64, files, totalFiles int)
 }
 
 type logBuffer struct {
@@ -40,8 +41,8 @@ func (b *logBuffer) Joined() string {
 }
 
 // NewGalleryDLEngine creates a GalleryDLEngine using an optional config file.
-func NewGalleryDLEngine(configPath string, log *zap.Logger) *GalleryDLEngine {
-	return &GalleryDLEngine{configPath: configPath, log: log}
+func NewGalleryDLEngine(configPath, cookiesPath string, log *zap.Logger) *GalleryDLEngine {
+	return &GalleryDLEngine{configPath: configPath, cookiesPath: cookiesPath, log: log}
 }
 
 func (e *GalleryDLEngine) SetProgressUpdater(fn func(id string, downloaded, total int64, files, totalFiles int)) {
@@ -75,6 +76,9 @@ func (e *GalleryDLEngine) Download(ctx context.Context, job *models.DownloadJob)
 	}
 	if e.hasConfig() {
 		args = append(args, "--config", e.configPath)
+	}
+	if strings.TrimSpace(e.cookiesPath) != "" {
+		args = append(args, "--cookies", e.cookiesPath)
 	}
 	args = append(args, job.URL)
 
@@ -134,6 +138,9 @@ func (e *GalleryDLEngine) FetchMetadata(url string) (*SourceMetadata, error) {
 	args := []string{"--dump-json"}
 	if e.hasConfig() {
 		args = append(args, "--config", e.configPath)
+	}
+	if strings.TrimSpace(e.cookiesPath) != "" {
+		args = append(args, "--cookies", e.cookiesPath)
 	}
 	args = append(args, url)
 
