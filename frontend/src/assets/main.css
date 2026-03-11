@@ -198,6 +198,23 @@ select:hover {
   font-weight: 500;
 }
 
+body.privacy-blur-enabled .media-card__thumb,
+body.privacy-blur-enabled .collection-card__preview,
+body.privacy-blur-enabled .collection-link__preview,
+body.privacy-blur-enabled .preview-tile,
+body.privacy-blur-enabled .dup-thumbnail,
+body.privacy-blur-enabled .thumbnail-preview {
+  overflow: hidden;
+}
+
+body.privacy-blur-enabled .media-card__image,
+body.privacy-blur-enabled .preview-image,
+body.privacy-blur-enabled .thumb-img,
+body.privacy-blur-enabled .thumbnail-preview {
+  filter: blur(20px) saturate(0.75) brightness(0.88);
+  transform: scale(1.14);
+}
+
 @media (max-width: 900px) {
   .page-content {
     padding: 12px 14px 20px;

@@ -26,14 +26,26 @@ import NoticeStack from '@/components/Layout/NoticeStack.vue'
 import Sidebar from '@/components/Layout/Sidebar.vue'
 import TopBar from '@/components/Layout/TopBar.vue'
 import { useAuthStore } from '@/stores/authStore'
+import { usePrivacyStore } from '@/stores/privacyStore'
 
 const authStore = useAuthStore()
+const privacyStore = usePrivacyStore()
 const route = useRoute()
 const sidebarOpen = ref(false)
+
+privacyStore.hydrate()
 
 watch(() => route.fullPath, () => {
   sidebarOpen.value = false
 })
+
+watch(
+  () => privacyStore.enabled,
+  (enabled) => {
+    document.body.classList.toggle('privacy-blur-enabled', enabled)
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>

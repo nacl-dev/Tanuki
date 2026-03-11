@@ -256,6 +256,21 @@
         </div>
         <span class="maintenance-link">{{ activeSection === 'plugins' ? 'Open below' : 'Open section' }}</span>
       </button>
+
+      <button
+        type="button"
+        :class="['card maintenance-card', { 'maintenance-card--active': activeSection === 'users' }]"
+        @click="openSection('users')"
+      >
+        <div>
+          <span class="maintenance-eyebrow">Administration</span>
+          <h3>User management</h3>
+          <p class="panel-copy">
+            {{ authStore.isAdmin ? 'Roles, active state and account cleanup for this instance.' : 'Visible as a locked card for non-admin accounts.' }}
+          </p>
+        </div>
+        <span class="maintenance-link">{{ activeSection === 'users' ? 'Open below' : 'Open section' }}</span>
+      </button>
     </section>
 
     <div v-if="activeSection === 'duplicates'" id="duplicates" class="card settings-panel">
@@ -273,6 +288,18 @@
         </div>
       </template>
     </div>
+
+    <div v-if="activeSection === 'users'" id="users" class="card settings-panel">
+      <template v-if="authStore.isAdmin">
+        <UserManagementPanel />
+      </template>
+      <template v-else>
+        <div class="locked-panel">
+          <h3>Users</h3>
+          <p class="panel-copy">User management is available for admin accounts only.</p>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
@@ -284,6 +311,7 @@ import { systemApi, type SystemInfo } from '@/api/systemApi'
 import { useAuthStore } from '@/stores/authStore'
 import DuplicatesPage from '@/pages/DuplicatesPage.vue'
 import PluginsPage from '@/pages/PluginsPage.vue'
+import UserManagementPanel from '@/components/Admin/UserManagementPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -305,7 +333,7 @@ const lastCompletedDownloadLabel = computed(() => {
   return new Date(info.value.last_completed_download).toLocaleString()
 })
 const activeSection = computed(() =>
-  route.query.section === 'duplicates' || route.query.section === 'plugins'
+  route.query.section === 'duplicates' || route.query.section === 'plugins' || route.query.section === 'users'
     ? route.query.section
     : '',
 )
@@ -348,7 +376,7 @@ watch(() => route.query.section, (section) => {
   void scrollToSection(section)
 })
 
-function openSection(section: 'duplicates' | 'plugins') {
+function openSection(section: 'duplicates' | 'plugins' | 'users') {
   const nextSection = activeSection.value === section ? undefined : section
   void router.replace({
     name: 'settings',

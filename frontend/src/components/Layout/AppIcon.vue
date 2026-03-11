@@ -60,6 +60,8 @@ type IconName =
   | 'forward'
   | 'pip'
   | 'question'
+  | 'eye'
+  | 'eyeOff'
 
 const props = withDefaults(defineProps<{
   name: IconName
@@ -101,6 +103,8 @@ const icons: Record<IconName, { stroke?: string[]; fill?: string[] }> = {
   forward: { stroke: ['M5 7L11 12L5 17V7Z', 'M13 7L19 12L13 17V7Z'] },
   pip: { stroke: ['M4 6A2 2 0 0 1 6 4H18A2 2 0 0 1 20 6V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V6Z', 'M12 12H19V18H12V12Z'] },
   question: { stroke: ['M9.1 9A3 3 0 1 1 14.9 10.2C13.95 10.83 13 11.43 13 12.8V13.5', 'M12 18H12.01'] },
+  eye: { stroke: ['M2 12C3.9 7.83 7.6 5 12 5C16.4 5 20.1 7.83 22 12C20.1 16.17 16.4 19 12 19C7.6 19 3.9 16.17 2 12Z', 'M12 15.25A3.25 3.25 0 1 0 12 8.75A3.25 3.25 0 0 0 12 15.25Z'] },
+  eyeOff: { stroke: ['M3 3L21 21', 'M10.58 10.58A2 2 0 0 0 13.42 13.42', 'M9.88 5.1A10.94 10.94 0 0 1 12 5C16.4 5 20.1 7.83 22 12A18.06 18.06 0 0 1 18.16 17.19', 'M6.71 6.72A17.53 17.53 0 0 0 2 12C3.9 16.17 7.6 19 12 19A10.8 10.8 0 0 0 14.9 18.61'] },
 }
 
 const icon = computed(() => icons[props.name] ?? icons.book)

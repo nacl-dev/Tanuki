@@ -7,6 +7,16 @@
       <SearchBar />
     </div>
     <div class="topbar-actions">
+      <button
+        type="button"
+        :class="['btn privacy-btn', privacyStore.enabled ? 'privacy-btn--active' : 'btn-ghost']"
+        :aria-pressed="privacyStore.enabled"
+        :title="privacyStore.enabled ? 'Disable privacy blur' : 'Enable privacy blur'"
+        @click="privacyStore.toggle()"
+      >
+        <AppIcon :name="privacyStore.enabled ? 'eyeOff' : 'eye'" :size="15" />
+        {{ privacyStore.enabled ? 'Blur On' : 'Blur Off' }}
+      </button>
       <div class="user-info" v-if="authStore.user">
         <span class="user-name">
           {{ authStore.user.display_name || authStore.user.username }}
@@ -23,12 +33,14 @@ import { useRouter } from 'vue-router'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import SearchBar from '@/components/Search/SearchBar.vue'
 import { useAuthStore } from '@/stores/authStore'
+import { usePrivacyStore } from '@/stores/privacyStore'
 
 defineEmits<{
   'toggle-sidebar': []
 }>()
 
 const authStore = useAuthStore()
+const privacyStore = usePrivacyStore()
 const router = useRouter()
 
 async function onLogout() {
@@ -64,6 +76,22 @@ async function onLogout() {
 
 .topbar-search { flex: 1; min-width: 0; max-width: 560px; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+.privacy-btn {
+  min-width: 108px;
+  justify-content: center;
+}
+
+.privacy-btn--active {
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
+  border: 1px solid rgba(59, 130, 246, 0.24);
+}
+
+.privacy-btn--active:hover {
+  background: rgba(59, 130, 246, 0.18);
+  color: #dbeafe;
+}
 
 .user-info {
   display: flex;

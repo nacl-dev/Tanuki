@@ -268,14 +268,29 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
+	tx, err := h.db.Beginx()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Serialize admin-role changes so the last active admin cannot be removed
+	// through concurrent role/status updates.
+	if _, err := tx.Exec(`LOCK TABLE users IN EXCLUSIVE MODE`); err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
+		return
+	}
+
 	var user models.User
-	if err := h.db.QueryRowx(`
+	if err := tx.QueryRowx(`
 		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).StructScan(&user); err != nil {
 		respondError(c, http.StatusNotFound, "user not found")
 		return
 	}
+	wasActiveAdmin := user.Role == models.RoleAdmin && user.IsActive
 
 	if req.DisplayName != "" {
 		user.DisplayName = req.DisplayName
@@ -293,9 +308,22 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
 	}
+
+	if wasActiveAdmin && (user.Role != models.RoleAdmin || !user.IsActive) {
+		var adminCount int
+		if err := tx.Get(&adminCount, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE`); err != nil {
+			respondError(c, http.StatusInternalServerError, "database error")
+			return
+		}
+		if adminCount <= 1 {
+			respondError(c, http.StatusConflict, "cannot remove the last active admin")
+			return
+		}
+	}
+
 	user.UpdatedAt = time.Now()
 
-	_, err := h.db.Exec(`
+	_, err = tx.Exec(`
 		UPDATE users SET display_name=$1, email=$2, role=$3, is_active=$4, updated_at=$5
 		WHERE id=$6
 	`, user.DisplayName, user.Email, user.Role, user.IsActive, user.UpdatedAt, id)
@@ -305,6 +333,10 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 		respondError(c, http.StatusInternalServerError, "failed to update user")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
 		return
 	}
 

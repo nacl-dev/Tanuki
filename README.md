@@ -2,6 +2,10 @@
 
 Tanuki is a self-hosted media vault for mixed libraries that include videos, images, manga, comics and source downloads. It combines scanning, playback, reading, metadata management, downloads, auto-tagging, duplicate detection and collections in a Docker-based stack.
 
+![Tanuki library preview with blurred covers and names](docs/assets/readme-preview-blurred.png)
+
+Preview screenshot with cover art and item names intentionally blurred for privacy.
+
 ## Release Status
 
 Current status: ready for release
