@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/remotehttp"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"go.uber.org/zap"
 )
@@ -52,6 +54,27 @@ type Scanner struct {
 	client    *http.Client
 }
 
+type scanStats struct {
+	Seen     int
+	Hashed   int
+	Reused   int
+	Inserted int
+	Updated  int
+}
+
+type upsertResult struct {
+	Hashed   bool
+	Inserted bool
+}
+
+type existingMedia struct {
+	ID            string     `db:"id"`
+	FileSize      int64      `db:"file_size"`
+	Checksum      string     `db:"checksum"`
+	ThumbnailPath string     `db:"thumbnail_path"`
+	ScanMTime     *time.Time `db:"scan_mtime"`
+}
+
 // New creates a Scanner instance.
 func New(db *database.DB, mediaPath, thumbPath string, log *zap.Logger) *Scanner {
 	return &Scanner{
@@ -59,7 +82,7 @@ func New(db *database.DB, mediaPath, thumbPath string, log *zap.Logger) *Scanner
 		mediaPath: mediaPath,
 		thumbPath: thumbPath,
 		log:       log,
-		client:    &http.Client{Timeout: 30 * time.Second},
+		client:    remotehttp.NewClient(30 * time.Second),
 	}
 }
 
@@ -69,6 +92,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	start := time.Now()
 
 	seen := map[string]bool{}
+	stats := scanStats{}
 
 	err := filepath.WalkDir(s.mediaPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -89,9 +113,22 @@ func (s *Scanner) Run(ctx context.Context) error {
 		}
 
 		seen[path] = true
+		stats.Seen++
 
-		if err := s.upsert(ctx, path, mediaType); err != nil {
+		result, err := s.upsert(ctx, path, mediaType)
+		if err != nil {
 			s.log.Error("scanner: upsert failed", zap.String("path", path), zap.Error(err))
+		} else {
+			if result.Hashed {
+				stats.Hashed++
+			} else {
+				stats.Reused++
+			}
+			if result.Inserted {
+				stats.Inserted++
+			} else {
+				stats.Updated++
+			}
 		}
 
 		return nil
@@ -106,6 +143,10 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 	s.log.Info("scanner: scan complete",
 		zap.Int("seen", len(seen)),
+		zap.Int("hashed", stats.Hashed),
+		zap.Int("reused", stats.Reused),
+		zap.Int("inserted", stats.Inserted),
+		zap.Int("updated", stats.Updated),
 		zap.Duration("elapsed", time.Since(start)),
 	)
 	return nil
@@ -113,15 +154,29 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 // upsert inserts a new Media record or updates the checksum/size if the file
 // has changed since the last scan.
-func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.MediaType) error {
+func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.MediaType) (upsertResult, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("stat %s: %w", path, err)
+		return upsertResult{}, fmt.Errorf("stat %s: %w", path, err)
 	}
 
-	checksum, err := sha256File(path)
+	scanMTime := s.scanMTime(path, info.ModTime())
+	existing, err := s.lookupExisting(ctx, path)
 	if err != nil {
-		return fmt.Errorf("checksum %s: %w", path, err)
+		return upsertResult{}, fmt.Errorf("lookup existing %s: %w", path, err)
+	}
+
+	checksum := ""
+	needsHash := existing == nil ||
+		existing.FileSize != info.Size() ||
+		!sameScanTime(existing.ScanMTime, scanMTime)
+	if needsHash {
+		checksum, err = sha256File(path)
+		if err != nil {
+			return upsertResult{}, fmt.Errorf("checksum %s: %w", path, err)
+		}
+	} else {
+		checksum = existing.Checksum
 	}
 
 	defaultTitle := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
@@ -141,24 +196,40 @@ func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.Medi
 
 	var mediaID string
 	var thumbnailPath string
+	var inserted bool
 	err = s.db.QueryRowxContext(ctx, `
-		INSERT INTO media (id, title, type, file_path, file_size, checksum, source_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO media (id, title, type, file_path, file_size, checksum, source_url, scan_mtime)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (file_path) DO UPDATE SET
 			type       = EXCLUDED.type,
 			file_size  = EXCLUDED.file_size,
 			checksum   = EXCLUDED.checksum,
+			scan_mtime = EXCLUDED.scan_mtime,
 			title      = CASE
-				WHEN media.title = $8 OR media.title = '' THEN EXCLUDED.title
+				WHEN media.title = $9 OR media.title = '' THEN EXCLUDED.title
 				ELSE media.title
 			END,
 			source_url = CASE
 				WHEN media.source_url = '' THEN EXCLUDED.source_url
 				ELSE media.source_url
 			END,
+			phash = CASE
+				WHEN media.file_size IS DISTINCT FROM EXCLUDED.file_size
+				  OR media.scan_mtime IS DISTINCT FROM EXCLUDED.scan_mtime
+				  OR media.checksum IS DISTINCT FROM EXCLUDED.checksum
+				THEN NULL
+				ELSE media.phash
+			END,
+			phash_computed_at = CASE
+				WHEN media.file_size IS DISTINCT FROM EXCLUDED.file_size
+				  OR media.scan_mtime IS DISTINCT FROM EXCLUDED.scan_mtime
+				  OR media.checksum IS DISTINCT FROM EXCLUDED.checksum
+				THEN NULL
+				ELSE media.phash_computed_at
+			END,
 			deleted_at = NULL,
 			updated_at = NOW()
-		RETURNING id, thumbnail_path
+		RETURNING id, thumbnail_path, (xmax = 0) AS inserted
 	`,
 		uuid.NewString(),
 		title,
@@ -167,10 +238,11 @@ func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.Medi
 		info.Size(),
 		checksum,
 		sourceURL,
+		scanMTime,
 		defaultTitle,
-	).Scan(&mediaID, &thumbnailPath)
+	).Scan(&mediaID, &thumbnailPath, &inserted)
 	if err != nil {
-		return err
+		return upsertResult{}, err
 	}
 
 	if importMeta != nil {
@@ -188,7 +260,10 @@ func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.Medi
 		s.log.Warn("scanner: ensure thumbnail failed", zap.String("path", path), zap.Error(err))
 	}
 
-	return nil
+	return upsertResult{
+		Hashed:   needsHash,
+		Inserted: inserted,
+	}, nil
 }
 
 // removeStale soft-deletes database records that no longer have a file on disk.
@@ -234,6 +309,49 @@ func sha256File(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
+func (s *Scanner) lookupExisting(ctx context.Context, path string) (*existingMedia, error) {
+	var existing existingMedia
+	err := s.db.GetContext(ctx, &existing, `
+		SELECT id, file_size, checksum, thumbnail_path, scan_mtime
+		FROM media
+		WHERE file_path = $1
+		LIMIT 1
+	`, path)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &existing, nil
+}
+
+func (s *Scanner) scanMTime(mediaPath string, fileTime time.Time) time.Time {
+	latest := normalizeScanTime(fileTime)
+	for _, candidate := range []string{mediaPath + ".tanuki.json", mediaPath + ".info.json"} {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		candidateTime := normalizeScanTime(info.ModTime())
+		if candidateTime.After(latest) {
+			latest = candidateTime
+		}
+	}
+	return latest
+}
+
+func sameScanTime(existing *time.Time, current time.Time) bool {
+	if existing == nil {
+		return false
+	}
+	return normalizeScanTime(*existing).Equal(normalizeScanTime(current))
+}
+
+func normalizeScanTime(value time.Time) time.Time {
+	return value.UTC().Truncate(time.Microsecond)
+}
+
 func (s *Scanner) loadImportMetadata(mediaPath string) (*models.ImportMetadata, error) {
 	sidecarPath := mediaPath + ".tanuki.json"
 	body, err := os.ReadFile(sidecarPath)
@@ -259,11 +377,11 @@ func (s *Scanner) loadImportMetadata(mediaPath string) (*models.ImportMetadata, 
 	}
 
 	var payload struct {
-		Title      string   `json:"title"`
-		WebpageURL string   `json:"webpage_url"`
-		OriginalURL string  `json:"original_url"`
-		Thumbnail  string   `json:"thumbnail"`
-		Tags       []string `json:"tags"`
+		Title       string   `json:"title"`
+		WebpageURL  string   `json:"webpage_url"`
+		OriginalURL string   `json:"original_url"`
+		Thumbnail   string   `json:"thumbnail"`
+		Tags        []string `json:"tags"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
@@ -331,6 +449,9 @@ func (s *Scanner) downloadPosterThumbnail(ctx context.Context, mediaID, posterUR
 	if strings.TrimSpace(s.thumbPath) == "" {
 		return nil
 	}
+	if err := remotehttp.ValidateURL(posterURL); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(s.thumbPath, 0o755); err != nil {
 		return err
 	}
@@ -358,7 +479,7 @@ func (s *Scanner) downloadPosterThumbnail(ctx context.Context, mediaID, posterUR
 	}
 	defer out.Close()
 
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	if _, err := io.Copy(out, io.LimitReader(resp.Body, 20<<20)); err != nil {
 		return err
 	}
 

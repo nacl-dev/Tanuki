@@ -1,11 +1,14 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
 )
@@ -13,6 +16,48 @@ import (
 type CollectionHandler struct {
 	db *database.DB
 }
+
+type collectionCountRow struct {
+	CollectionID string `db:"collection_id"`
+	ItemCount    int    `db:"item_count"`
+}
+
+type collectionPreviewRow struct {
+	CollectionID  string           `db:"collection_id"`
+	ID            string           `db:"id"`
+	Title         string           `db:"title"`
+	Type          models.MediaType `db:"type"`
+	ThumbnailPath string           `db:"thumbnail_path"`
+	UpdatedAt     time.Time        `db:"updated_at"`
+}
+
+type collectionTagRow struct {
+	MediaID    string             `db:"media_id"`
+	ID         string             `db:"id"`
+	Name       string             `db:"name"`
+	Category   models.TagCategory `db:"category"`
+	UsageCount int                `db:"usage_count"`
+}
+
+const collectionMatchPredicateSQL = `
+	cm.media_id IS NOT NULL
+	OR (
+		(c.auto_type IS NOT NULL OR c.auto_title <> '' OR c.auto_tag <> '' OR c.auto_favorite IS NOT NULL OR c.auto_min_rating IS NOT NULL)
+		AND (c.auto_type IS NULL OR c.auto_type = '' OR m.type = c.auto_type)
+		AND (c.auto_title = '' OR m.title ILIKE ('%' || c.auto_title || '%'))
+		AND (c.auto_favorite IS NULL OR m.favorite = c.auto_favorite)
+		AND (c.auto_min_rating IS NULL OR m.rating >= c.auto_min_rating)
+		AND (
+			c.auto_tag = ''
+			OR EXISTS (
+				SELECT 1
+				FROM media_tags mt
+				JOIN tags t ON t.id = mt.tag_id
+				WHERE mt.media_id = m.id AND LOWER(t.name) = LOWER(c.auto_tag)
+			)
+		)
+	)
+`
 
 func (h *CollectionHandler) List(c *gin.Context) {
 	userID := c.GetString("userID")
@@ -28,13 +73,9 @@ func (h *CollectionHandler) List(c *gin.Context) {
 		return
 	}
 
-	for i := range collections {
-		count, err := h.countCollectionItems(collections[i].ID)
-		if err != nil {
-			respondError(c, http.StatusInternalServerError, "count collection items: "+err.Error())
-			return
-		}
-		collections[i].ItemCount = count
+	if err := h.hydrateCollectionSummaries(collections, 5); err != nil {
+		respondError(c, http.StatusInternalServerError, "load collection summaries: "+err.Error())
+		return
 	}
 
 	respondOK(c, collections, &Meta{Total: len(collections)})
@@ -248,44 +289,19 @@ func (h *CollectionHandler) collectionOwnedByUser(id, userID string) bool {
 }
 
 func (h *CollectionHandler) countCollectionItems(collectionID string) (int, error) {
-	var count int
-	err := h.db.Get(&count, `
-		SELECT COUNT(*)
-		FROM (
-			SELECT DISTINCT m.id
-			FROM media m
-			LEFT JOIN media_collections cm
-				ON cm.media_id = m.id AND cm.collection_id = $1
-			CROSS JOIN collections c
-			WHERE c.id = $1
-			  AND m.deleted_at IS NULL
-			  AND (
-				cm.media_id IS NOT NULL
-				OR (
-					(c.auto_type IS NOT NULL OR c.auto_title <> '' OR c.auto_tag <> '' OR c.auto_favorite IS NOT NULL OR c.auto_min_rating IS NOT NULL)
-					AND (c.auto_type IS NULL OR c.auto_type = '' OR m.type = c.auto_type)
-					AND (c.auto_title = '' OR m.title ILIKE ('%' || c.auto_title || '%'))
-					AND (c.auto_favorite IS NULL OR m.favorite = c.auto_favorite)
-					AND (c.auto_min_rating IS NULL OR m.rating >= c.auto_min_rating)
-					AND (
-						c.auto_tag = ''
-						OR EXISTS (
-							SELECT 1
-							FROM media_tags mt
-							JOIN tags t ON t.id = mt.tag_id
-							WHERE mt.media_id = m.id AND LOWER(t.name) = LOWER(c.auto_tag)
-						)
-					)
-				)
-			  )
-		) AS collection_items
-	`, collectionID)
-	return count, err
+	rows, err := h.loadCollectionCounts([]string{collectionID})
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return rows[0].ItemCount, nil
 }
 
 func (h *CollectionHandler) listCollectionItems(collectionID string) ([]models.Media, error) {
 	var items []models.Media
-	err := h.db.Select(&items, `
+	err := h.db.Select(&items, fmt.Sprintf(`
 		SELECT DISTINCT m.*
 		FROM media m
 		LEFT JOIN media_collections cm
@@ -293,42 +309,178 @@ func (h *CollectionHandler) listCollectionItems(collectionID string) ([]models.M
 		CROSS JOIN collections c
 		WHERE c.id = $1
 		  AND m.deleted_at IS NULL
-		  AND (
-			cm.media_id IS NOT NULL
-			OR (
-				(c.auto_type IS NOT NULL OR c.auto_title <> '' OR c.auto_tag <> '' OR c.auto_favorite IS NOT NULL OR c.auto_min_rating IS NOT NULL)
-				AND (c.auto_type IS NULL OR c.auto_type = '' OR m.type = c.auto_type)
-				AND (c.auto_title = '' OR m.title ILIKE ('%' || c.auto_title || '%'))
-				AND (c.auto_favorite IS NULL OR m.favorite = c.auto_favorite)
-				AND (c.auto_min_rating IS NULL OR m.rating >= c.auto_min_rating)
-				AND (
-					c.auto_tag = ''
-					OR EXISTS (
-						SELECT 1
-						FROM media_tags mt
-						JOIN tags t ON t.id = mt.tag_id
-						WHERE mt.media_id = m.id AND LOWER(t.name) = LOWER(c.auto_tag)
-					)
-				)
-			)
-		  )
+		  AND (%s)
 		ORDER BY m.created_at DESC
-	`, collectionID)
+	`, collectionMatchPredicateSQL), collectionID)
 	if err != nil {
 		return nil, err
 	}
 
-	for i := range items {
-		if err := h.db.Select(&items[i].Tags, `
-			SELECT t.* FROM tags t
-			JOIN media_tags mt ON mt.tag_id = t.id
-			WHERE mt.media_id = $1
-		`, items[i].ID); err != nil {
-			return nil, err
-		}
+	if err := h.loadTagsForMedia(items); err != nil {
+		return nil, err
 	}
 
 	return items, nil
+}
+
+func (h *CollectionHandler) hydrateCollectionSummaries(collections []models.Collection, previewLimit int) error {
+	if len(collections) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(collections))
+	byID := make(map[string]*models.Collection, len(collections))
+	for i := range collections {
+		ids = append(ids, collections[i].ID)
+		byID[collections[i].ID] = &collections[i]
+	}
+
+	counts, err := h.loadCollectionCounts(ids)
+	if err != nil {
+		return err
+	}
+	for _, row := range counts {
+		if collection := byID[row.CollectionID]; collection != nil {
+			collection.ItemCount = row.ItemCount
+		}
+	}
+
+	if previewLimit <= 0 {
+		return nil
+	}
+
+	previews, err := h.loadCollectionPreviews(ids, previewLimit)
+	if err != nil {
+		return err
+	}
+	for collectionID, items := range previews {
+		if collection := byID[collectionID]; collection != nil {
+			collection.Items = items
+		}
+	}
+
+	return nil
+}
+
+func (h *CollectionHandler) loadCollectionCounts(collectionIDs []string) ([]collectionCountRow, error) {
+	if len(collectionIDs) == 0 {
+		return nil, nil
+	}
+
+	var rows []collectionCountRow
+	query := fmt.Sprintf(`
+		WITH target_collections AS (
+			SELECT *
+			FROM collections
+			WHERE id = ANY($1)
+		),
+		collection_items AS (
+			SELECT DISTINCT c.id AS collection_id, m.id AS media_id
+			FROM target_collections c
+			JOIN media m
+				ON m.deleted_at IS NULL
+			LEFT JOIN media_collections cm
+				ON cm.media_id = m.id AND cm.collection_id = c.id
+			WHERE %s
+		)
+		SELECT collection_id, COUNT(*) AS item_count
+		FROM collection_items
+		GROUP BY collection_id
+	`, collectionMatchPredicateSQL)
+
+	if err := h.db.Select(&rows, query, pq.Array(collectionIDs)); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (h *CollectionHandler) loadCollectionPreviews(collectionIDs []string, limit int) (map[string][]models.Media, error) {
+	if len(collectionIDs) == 0 || limit <= 0 {
+		return map[string][]models.Media{}, nil
+	}
+
+	var rows []collectionPreviewRow
+	query := fmt.Sprintf(`
+		WITH target_collections AS (
+			SELECT *
+			FROM collections
+			WHERE id = ANY($1)
+		),
+		ranked_items AS (
+			SELECT
+				c.id AS collection_id,
+				m.id,
+				m.title,
+				m.type,
+				m.thumbnail_path,
+				m.updated_at,
+				ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY m.created_at DESC, m.id DESC) AS rn
+			FROM target_collections c
+			JOIN media m
+				ON m.deleted_at IS NULL
+			LEFT JOIN media_collections cm
+				ON cm.media_id = m.id AND cm.collection_id = c.id
+			WHERE %s
+		)
+		SELECT collection_id, id, title, type, thumbnail_path, updated_at
+		FROM ranked_items
+		WHERE rn <= $2
+		ORDER BY collection_id, rn
+	`, collectionMatchPredicateSQL)
+
+	if err := h.db.Select(&rows, query, pq.Array(collectionIDs), limit); err != nil {
+		return nil, err
+	}
+
+	previews := make(map[string][]models.Media, len(collectionIDs))
+	for _, row := range rows {
+		previews[row.CollectionID] = append(previews[row.CollectionID], models.Media{
+			ID:            row.ID,
+			Title:         row.Title,
+			Type:          row.Type,
+			ThumbnailPath: row.ThumbnailPath,
+			UpdatedAt:     row.UpdatedAt,
+		})
+	}
+
+	return previews, nil
+}
+
+func (h *CollectionHandler) loadTagsForMedia(items []models.Media) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(items))
+	byID := make(map[string]*models.Media, len(items))
+	for i := range items {
+		ids = append(ids, items[i].ID)
+		byID[items[i].ID] = &items[i]
+	}
+
+	var rows []collectionTagRow
+	if err := h.db.Select(&rows, `
+		SELECT mt.media_id, t.id, t.name, t.category, t.usage_count
+		FROM media_tags mt
+		JOIN tags t ON t.id = mt.tag_id
+		WHERE mt.media_id = ANY($1)
+		ORDER BY t.name ASC
+	`, pq.Array(ids)); err != nil {
+		return err
+	}
+
+	for _, row := range rows {
+		if media := byID[row.MediaID]; media != nil {
+			media.Tags = append(media.Tags, models.Tag{
+				ID:         row.ID,
+				Name:       row.Name,
+				Category:   row.Category,
+				UsageCount: row.UsageCount,
+			})
+		}
+	}
+
+	return nil
 }
 
 func normalizeCollectionAutoType(value string) string {

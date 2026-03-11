@@ -2,7 +2,7 @@
   <div class="schedule-manager">
     <div class="sm-header">
       <h3>Schedules</h3>
-      <button class="btn btn-primary btn-sm" @click="showForm = !showForm">+ New</button>
+      <button type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">New Schedule</button>
     </div>
 
     <!-- New schedule form -->
@@ -20,8 +20,8 @@
         <input v-model="form.cron_expression" class="input" placeholder="0 3 * * *" />
       </div>
       <div class="form-row">
-        <button class="btn btn-primary btn-sm" @click="save">Save</button>
-        <button class="btn btn-ghost btn-sm" @click="showForm = false">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" @click="save">Save</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="showForm = false">Cancel</button>
       </div>
     </div>
 
@@ -35,10 +35,11 @@
         </div>
         <div class="sm-item__actions">
           <button
+            type="button"
             :class="['btn btn-ghost btn-sm', { 'active': sched.enabled }]"
             @click="store.updateSchedule(sched.id, { enabled: !sched.enabled })"
           >{{ sched.enabled ? 'Enabled' : 'Disabled' }}</button>
-          <button class="btn btn-ghost btn-sm" @click="store.removeSchedule(sched.id)">🗑</button>
+          <button type="button" class="btn btn-ghost btn-sm" :aria-label="`Delete schedule ${sched.name}`" @click="store.removeSchedule(sched.id)">Delete</button>
         </div>
       </div>
     </div>
@@ -108,5 +109,8 @@ async function save() {
   font-size: 13px;
   outline: none;
 }
-.input:focus { border-color: var(--accent); }
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
 </style>

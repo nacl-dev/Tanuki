@@ -3,6 +3,7 @@ package thumbnails
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
 	"image"
@@ -184,36 +185,39 @@ func (g *Generator) generateFromZIP(src, dst string) error {
 	return saveJPEG(thumb, dst)
 }
 
-// generateFromRAR shells out to unrar to extract the first image, then thumbnails it.
+// generateFromRAR shells out to bsdtar to read the first image, then thumbnails it.
 func (g *Generator) generateFromRAR(ctx context.Context, src, dst string) error {
-	tmpDir, err := os.MkdirTemp("", "tanuki-rar-*")
+	listCmd := exec.CommandContext(ctx, "bsdtar", "-tf", src)
+	listOut, err := listCmd.Output()
 	if err != nil {
-		return fmt.Errorf("create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	cmd := exec.CommandContext(ctx, "unrar", "e", "-y", src, tmpDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("unrar: %w\n%s", err, string(out))
+		return fmt.Errorf("bsdtar -tf: %w", err)
 	}
 
-	// Find the first image in tmpDir (sorted).
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		return fmt.Errorf("read tmpdir: %w", err)
-	}
 	var images []string
-	for _, e := range entries {
-		if !e.IsDir() && isImageExt(filepath.Ext(e.Name())) {
-			images = append(images, filepath.Join(tmpDir, e.Name()))
+	for _, line := range strings.Split(string(listOut), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && isImageExt(filepath.Ext(line)) {
+			images = append(images, line)
 		}
 	}
 	if len(images) == 0 {
 		return fmt.Errorf("no images found in RAR archive %s", src)
 	}
 	sort.Strings(images)
-	return g.generateFromImage(images[0], dst)
+
+	extractCmd := exec.CommandContext(ctx, "bsdtar", "-xOf", src, images[0])
+	imageBytes, err := extractCmd.Output()
+	if err != nil {
+		return fmt.Errorf("bsdtar -xOf: %w", err)
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(imageBytes))
+	if err != nil {
+		return fmt.Errorf("decode rar image: %w", err)
+	}
+
+	thumb := resizeImage(img, maxWidth, maxHeight)
+	return saveJPEG(thumb, dst)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

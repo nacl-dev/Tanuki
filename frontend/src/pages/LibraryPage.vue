@@ -1,5 +1,49 @@
 <template>
   <div class="library-page">
+    <section class="library-hero card">
+      <div class="library-hero__copy">
+        <span class="library-hero__eyebrow">Library</span>
+        <h1>Browse, continue and organize your vault.</h1>
+        <p>Global maintenance actions live here now instead of floating across every page.</p>
+      </div>
+      <div class="library-hero__actions">
+        <button class="btn btn-ghost" :disabled="tagging" @click="runBatchAutoTag">
+          {{ tagging ? 'Queueing…' : 'Auto-tag Untagged' }}
+        </button>
+        <button class="btn btn-primary" :disabled="scanning" @click="scanLibrary">
+          {{ scanning ? 'Queueing…' : 'Scan Library' }}
+        </button>
+      </div>
+    </section>
+
+    <section v-if="recentTasks.length" class="library-tasks">
+      <article
+        v-for="task in recentTasks"
+        :key="task.id"
+        class="card task-card"
+        :class="`task-card--${task.status}`"
+      >
+        <div class="task-card__head">
+          <div>
+            <span class="gallery-count">{{ formatTaskKind(task.kind) }}</span>
+            <h3>{{ task.message || 'Background task' }}</h3>
+          </div>
+          <span class="task-status">{{ task.status }}</span>
+        </div>
+
+        <div class="task-progress">
+          <div class="task-progress__bar">
+            <span class="task-progress__fill" :style="{ width: `${task.percent || 0}%` }" />
+          </div>
+          <span class="task-progress__meta">
+            {{ task.total ? `${task.completed} / ${task.total}` : task.status === 'running' ? 'Running' : 'Idle' }}
+          </span>
+        </div>
+
+        <p v-if="task.error" class="task-error">{{ task.error }}</p>
+      </article>
+    </section>
+
     <aside class="filter-bar">
       <div class="filter-options filter-options--inline">
         <button
@@ -18,19 +62,22 @@
         </button>
       </div>
 
-      <div class="rating-filter">
-        <span
+      <div class="rating-filter" @mouseleave="hoveredRating = null">
+        <button
           v-for="star in 5"
           :key="star"
+          type="button"
           class="rating-star"
           :class="{ active: (hoveredRating ?? store.filters.min_rating ?? 0) >= star }"
+          :aria-label="`Minimum ${star} star${star === 1 ? '' : 's'}`"
+          :aria-pressed="store.filters.min_rating === star"
           @click="setMinRating(star)"
           @mouseenter="hoveredRating = star"
-          @mouseleave="hoveredRating = null"
           title="Minimum rating"
-        >★</span>
+        >★</button>
         <button
           v-if="store.filters.min_rating"
+          type="button"
           class="clear-rating"
           @click="store.setFilter('min_rating', undefined)"
         >✕</button>
@@ -46,13 +93,94 @@
       </div>
     </aside>
 
+    <section v-if="collections.length" class="library-collections">
+      <div class="library-collections__header">
+        <span class="gallery-count">Collections</span>
+      </div>
+
+      <div class="library-collections__grid">
+        <button
+          v-for="collection in collections"
+          :key="collection.id"
+          :class="['collection-card', { active: expandedCollectionId === collection.id }]"
+          @click="toggleCollection(collection.id)"
+        >
+          <div class="collection-card__preview" v-if="collection.items?.length">
+            <div class="preview-stack">
+              <div
+                v-for="(item, index) in previewItems(collection)"
+                :key="item.id"
+                class="preview-tile"
+                :class="{ 'preview-tile--lead': index === 0 }"
+                :style="previewTileStyle(index, previewItems(collection).length)"
+              >
+                <img
+                  class="preview-image"
+                  :src="mediaAssetUrl(item.id, 'thumbnail', item.updated_at)"
+                  :alt="item.title"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="collection-card__meta">
+            <span class="collection-card__name">{{ collection.name }}</span>
+            <small>{{ collection.item_count }}</small>
+          </div>
+        </button>
+      </div>
+
+      <div v-if="expandedCollection" class="library-collections__expanded">
+        <div class="library-collections__expanded-head">
+          <h3>{{ expandedCollection.name }}</h3>
+          <button class="btn btn-ghost btn-sm" @click="expandedCollectionId = ''">Close</button>
+        </div>
+        <MediaGrid :items="expandedCollection.items ?? []" :loading="false" :density="gridDensity" />
+      </div>
+    </section>
+
+    <section v-if="quickShelves.length" class="library-shelves">
+      <article
+        v-for="shelf in quickShelves"
+        :key="shelf.key"
+        class="card shelf-card"
+      >
+        <div class="shelf-card__head">
+          <div>
+            <span class="gallery-count">{{ shelf.kicker }}</span>
+            <h3>{{ shelf.title }}</h3>
+          </div>
+          <span class="shelf-card__count">{{ shelf.items.length }}</span>
+        </div>
+        <MediaGrid :items="shelf.items" :loading="false" :density="gridDensity" />
+      </article>
+    </section>
+
     <section class="gallery-section">
       <div class="gallery-header">
         <div class="gallery-controls">
           <span class="gallery-count">{{ store.total }} items</span>
+          <div class="density-toggle" role="group" aria-label="Grid density">
+            <button
+              type="button"
+              :class="['density-chip', { active: gridDensity === 'cozy' }]"
+              :aria-pressed="gridDensity === 'cozy'"
+              @click="setGridDensity('cozy')"
+            >
+              Cozy
+            </button>
+            <button
+              type="button"
+              :class="['density-chip', { active: gridDensity === 'compact' }]"
+              :aria-pressed="gridDensity === 'compact'"
+              @click="setGridDensity('compact')"
+            >
+              Compact
+            </button>
+          </div>
         </div>
       </div>
-      <MediaGrid :items="store.items" :loading="store.loading" />
+      <MediaGrid :items="store.items" :loading="store.loading" :density="gridDensity" />
 
       <div v-if="store.totalPages > 1" class="pagination">
         <button class="btn btn-ghost btn-sm" :disabled="store.currentPage <= 1" @click="store.prevPage()">← Previous</button>
@@ -64,14 +192,32 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { autotagApi } from '@/api/autotagApi'
 import { useMediaStore } from '@/stores/mediaStore'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
+import { collectionApi, type Collection } from '@/api/collectionApi'
+import { libraryApi } from '@/api/libraryApi'
+import { mediaApi, mediaAssetUrl, type Media } from '@/api/mediaApi'
+import { taskApi, type BackgroundTask } from '@/api/taskApi'
+import { useNoticeStore } from '@/stores/noticeStore'
 
 const store = useMediaStore()
 const route = useRoute()
+const { pushNotice } = useNoticeStore()
 const hoveredRating = ref<number | null>(null)
+const collections = ref<Collection[]>([])
+const expandedCollectionId = ref('')
+const scanning = ref(false)
+const tagging = ref(false)
+const continueItems = ref<Media[]>([])
+const recentItems = ref<Media[]>([])
+const favoriteItems = ref<Media[]>([])
+const tasks = ref<BackgroundTask[]>([])
+const hadActiveTasks = ref(false)
+const gridDensity = ref<'cozy' | 'compact'>('cozy')
+let taskPollTimer: number | null = null
 
 const types = [
   { value: '', label: 'All' },
@@ -98,7 +244,182 @@ function setMinRating(star: number) {
   }
 }
 
+function previewItems(collection: Collection) {
+  return (collection.items ?? []).slice(0, 5)
+}
+
+function previewTileStyle(index: number, count: number) {
+  if (index === 0) {
+    return {
+      left: '0%',
+      width: '42%',
+      zIndex: count + 1,
+    }
+  }
+
+  const trailing = Math.max(count - 1, 1)
+  const slotWidth = 58 / Math.min(trailing, 4)
+  return {
+    left: `${42 + (index - 1) * slotWidth}%`,
+    width: `${slotWidth}%`,
+    zIndex: count - index,
+  }
+}
+
+function toggleCollection(id: string) {
+  expandedCollectionId.value = expandedCollectionId.value === id ? '' : id
+}
+
+const expandedCollection = computed(() =>
+  collections.value.find((collection) => collection.id === expandedCollectionId.value) ?? null,
+)
+const quickShelves = computed(() => [
+  {
+    key: 'continue',
+    kicker: 'Continue',
+    title: 'Pick up where you left off',
+    items: continueItems.value,
+  },
+  {
+    key: 'favorites',
+    kicker: 'Favorites',
+    title: 'Fast access to your saved picks',
+    items: favoriteItems.value,
+  },
+  {
+    key: 'recent',
+    kicker: 'Recent',
+    title: 'Newest additions to the vault',
+    items: recentItems.value,
+  },
+].filter((section) => section.items.length > 0))
+const recentTasks = computed(() => tasks.value.slice(0, 4))
+
+async function loadCollections() {
+  const res = await collectionApi.list()
+  collections.value = res.data ?? []
+}
+
+async function loadQuickShelves() {
+  const [continueRes, favoriteRes, recentRes] = await Promise.all([
+    mediaApi.list({ limit: 6, in_progress: true, sort: 'newest' }),
+    mediaApi.list({ limit: 6, favorite: true, sort: 'rating' }),
+    mediaApi.list({ limit: 6, sort: 'newest' }),
+  ])
+  continueItems.value = continueRes.data ?? []
+  favoriteItems.value = favoriteRes.data ?? []
+  recentItems.value = recentRes.data ?? []
+}
+
+async function refreshLibrarySurfaces() {
+  await Promise.all([
+    store.fetchList(),
+    loadCollections(),
+    loadQuickShelves(),
+  ])
+}
+
+function formatTaskKind(kind: string) {
+  switch (kind) {
+    case 'library.scan':
+      return 'Library Scan'
+    case 'library.organize':
+      return 'Organize'
+    case 'media.autotag_batch':
+      return 'Auto-tag'
+    default:
+      return kind
+  }
+}
+
+function stopTaskPolling() {
+  if (taskPollTimer !== null) {
+    window.clearInterval(taskPollTimer)
+    taskPollTimer = null
+  }
+}
+
+function setGridDensity(next: 'cozy' | 'compact') {
+  gridDensity.value = next
+  window.localStorage.setItem('tanuki_grid_density', next)
+}
+
+function ensureTaskPolling() {
+  if (taskPollTimer !== null) return
+  taskPollTimer = window.setInterval(() => {
+    void loadTasks()
+  }, 4000)
+}
+
+async function loadTasks() {
+  let nextTasks: BackgroundTask[] = []
+  try {
+    nextTasks = await taskApi.list(8)
+  } catch {
+    stopTaskPolling()
+    return
+  }
+  tasks.value = nextTasks
+
+  const hasActiveTasks = nextTasks.some((task) => task.status === 'queued' || task.status === 'running')
+  if (hasActiveTasks) {
+    hadActiveTasks.value = true
+    ensureTaskPolling()
+    return
+  }
+
+  stopTaskPolling()
+  if (hadActiveTasks.value) {
+    hadActiveTasks.value = false
+    await refreshLibrarySurfaces()
+  }
+}
+
+async function scanLibrary() {
+  if (scanning.value) return
+  scanning.value = true
+  try {
+    const response = await libraryApi.scan()
+    pushNotice({
+      type: 'success',
+      message: `Library scan queued (${response.data.task_id.slice(0, 8)})`,
+    })
+    await loadTasks()
+  } catch (error) {
+    pushNotice({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to queue library scan',
+    })
+  } finally {
+    scanning.value = false
+  }
+}
+
+async function runBatchAutoTag() {
+  if (tagging.value) return
+  tagging.value = true
+  try {
+    const response = await autotagApi.autotagBatch('all_untagged')
+    pushNotice({
+      type: 'success',
+      message: `Auto-tag batch queued (${response.data.queued} items)`,
+    })
+    await loadTasks()
+  } catch (error) {
+    pushNotice({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to queue auto-tag batch',
+    })
+  } finally {
+    tagging.value = false
+  }
+}
+
 onMounted(() => {
+  const savedDensity = window.localStorage.getItem('tanuki_grid_density')
+  if (savedDensity === 'cozy' || savedDensity === 'compact') {
+    gridDensity.value = savedDensity
+  }
   const tagsParam = route.query.tags
   const tagParam = route.query.tag
   if (typeof tagsParam === 'string' && tagsParam.trim() !== '') {
@@ -114,6 +435,13 @@ onMounted(() => {
     store.filters.tags = ''
     store.fetchList()
   }
+  void loadCollections()
+  void loadQuickShelves()
+  void loadTasks()
+})
+
+onBeforeUnmount(() => {
+  stopTaskPolling()
 })
 
 watch(
@@ -142,7 +470,125 @@ watch(
 .library-page {
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+
+.library-tasks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.library-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.16), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+    var(--bg-card);
+}
+
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-card--running,
+.task-card--queued {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.task-card--failed {
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.task-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-card__head h3 {
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.task-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.task-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-progress__bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.task-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, white));
+  transition: width 0.2s ease;
+}
+
+.task-progress__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+.library-hero__copy {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+}
+
+.library-hero__eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.library-hero__copy h1 {
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.1;
+}
+
+.library-hero__copy p {
+  max-width: 560px;
+  color: var(--text-muted);
+}
+
+.library-hero__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .filter-bar {
@@ -228,10 +674,15 @@ watch(
 }
 
 .rating-star {
+  appearance: none;
+  border: none;
+  background: transparent;
   cursor: pointer;
   font-size: 18px;
   color: var(--text-muted);
   transition: color 0.1s;
+  padding: 0;
+  line-height: 1;
 }
 
 .rating-star.active { color: var(--accent, #f59e0b); }
@@ -249,6 +700,158 @@ watch(
 
 .gallery-section { flex: 1; display: flex; flex-direction: column; gap: 16px; }
 
+.library-collections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.library-shelves {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.shelf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.shelf-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shelf-card__head h3 {
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.shelf-card__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.library-collections__header {
+  display: flex;
+  align-items: center;
+}
+
+.library-collections__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.collection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+
+.collection-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.collection-card.active {
+  border-color: var(--accent);
+  background: var(--accent-dimmed);
+}
+
+.collection-card__preview {
+  width: 100%;
+}
+
+.preview-stack {
+  position: relative;
+  width: 100%;
+  height: 82px;
+}
+
+.preview-tile {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: var(--bg-card);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.preview-tile--lead {
+  min-width: 92px;
+}
+
+.preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.collection-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.collection-card__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-card small {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+}
+
+.library-collections__expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-card) 96%, transparent);
+}
+
+.library-collections__expanded-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.library-collections__expanded-head h3 {
+  font-size: 16px;
+}
+
 .gallery-header {
   display: flex;
   flex-direction: column;
@@ -261,9 +864,32 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .gallery-count { font-size: 13px; color: var(--text-muted); }
+
+.density-toggle {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.density-chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.density-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-dimmed);
+  color: var(--accent);
+}
 
 .pagination {
   display: flex;
@@ -276,6 +902,21 @@ watch(
 .pagination-info { font-size: 13px; color: var(--text-muted); }
 
 @media (max-width: 960px) {
+  .library-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .library-hero__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .library-hero__actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
   .filter-bar {
     gap: 16px;
   }

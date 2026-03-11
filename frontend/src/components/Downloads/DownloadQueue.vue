@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useDownloadStore } from '@/stores/downloadStore'
 import DownloadProgress from './DownloadProgress.vue'
 
@@ -56,6 +56,7 @@ const filtered = computed(() =>
     ? sortedJobs.value
     : sortedJobs.value.filter((j) => j.status === activeFilter.value)
 )
+const shouldPoll = computed(() => store.activeJobs().length > 0)
 
 function setFilter(v: string) {
   activeFilter.value = v
@@ -63,19 +64,44 @@ function setFilter(v: string) {
 
 onMounted(() => { store.fetchJobs() })
 
-// Poll active downloads every 3 seconds
-let interval: ReturnType<typeof setInterval>
-onMounted(() => { interval = setInterval(() => store.fetchJobs(undefined, { silent: true }), 3000) })
-onUnmounted(() => clearInterval(interval))
+let interval: ReturnType<typeof setInterval> | null = null
+
+function startPolling() {
+  if (interval) return
+  interval = setInterval(() => store.fetchJobs(undefined, { silent: true }), 3000)
+}
+
+function stopPolling() {
+  if (!interval) return
+  clearInterval(interval)
+  interval = null
+}
+
+watch(shouldPoll, (active) => {
+  if (active) {
+    startPolling()
+  } else {
+    stopPolling()
+  }
+}, { immediate: true })
+
+onUnmounted(() => stopPolling())
 </script>
 
 <style scoped>
 .download-queue { display: flex; flex-direction: column; gap: 12px; }
 .queue-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .queue-header h3 { font-size: 15px; font-weight: 600; }
-.queue-filters { display: flex; gap: 6px; }
+.queue-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .queue-list { display: flex; flex-direction: column; gap: 8px; }
 .queue-empty { color: var(--text-muted); text-align: center; padding: 32px; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .active { background: var(--accent-dimmed); color: var(--accent); border-color: var(--accent); }
+
+@media (max-width: 720px) {
+  .queue-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 </style>

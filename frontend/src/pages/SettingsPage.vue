@@ -1,87 +1,290 @@
 <template>
   <div class="settings-page">
-    <h2 class="page-title">Settings</h2>
-
-    <div class="settings-grid">
-      <!-- Library -->
-      <div class="card settings-card">
-        <h3>Library</h3>
-        <div class="setting-row">
-          <div>
-            <p class="setting-name">Media Path</p>
-            <p class="setting-desc">Directory where your media files are stored.</p>
-          </div>
-          <input class="input" value="/media" disabled />
-        </div>
-        <div class="setting-row">
-          <div>
-            <p class="setting-name">Scan Interval</p>
-            <p class="setting-desc">How often (seconds) the library is scanned.</p>
-          </div>
-          <input class="input" value="300" type="number" />
-        </div>
-        <button class="btn btn-primary" @click="scanNow">🔍 Scan Now</button>
+    <div class="page-head">
+      <div>
+        <h2 class="page-title">Settings</h2>
+        <p class="page-copy">Live runtime info, quick actions and maintenance tools.</p>
       </div>
-
-      <!-- Downloads -->
-      <div class="card settings-card">
-        <h3>Download Manager</h3>
-        <div class="setting-row">
-          <div>
-            <p class="setting-name">Concurrent Downloads</p>
-            <p class="setting-desc">Maximum parallel downloads.</p>
-          </div>
-          <input class="input" value="3" type="number" min="1" max="10" />
-        </div>
-        <div class="setting-row">
-          <div>
-            <p class="setting-name">Rate Limit Delay (ms)</p>
-            <p class="setting-desc">Delay between requests to the same source.</p>
-          </div>
-          <input class="input" value="1000" type="number" />
-        </div>
-      </div>
-
-      <!-- About -->
-      <div class="card settings-card">
-        <h3>About</h3>
-        <p class="about-text">
-          🦝 <strong>Tanuki</strong> – Self-Hosted Media Vault<br />
-          Version 1.0.0
-        </p>
-      </div>
+      <button class="btn btn-primary" :disabled="scanning" @click="scanNow">
+        {{ scanning ? 'Scanning…' : 'Scan Library Now' }}
+      </button>
     </div>
 
-    <div id="duplicates" class="card settings-panel">
+    <div class="settings-grid">
+      <section class="card settings-card">
+        <div class="card-head">
+          <div>
+            <h3>Library Runtime</h3>
+            <p class="card-copy">Current paths and scanner behavior from the running backend.</p>
+          </div>
+          <span class="status-pill" :class="{ 'status-pill--loading': loadingInfo }">
+            {{ loadingInfo ? 'Refreshing' : 'Live' }}
+          </span>
+        </div>
+
+        <div v-if="info" class="setting-list">
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Media Path</p>
+              <p class="setting-desc">Primary library location.</p>
+            </div>
+            <code class="setting-value">{{ info.media_path }}</code>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Thumbnails</p>
+              <p class="setting-desc">Generated covers and preview cache.</p>
+            </div>
+            <code class="setting-value">{{ info.thumbnails_path }}</code>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Inbox</p>
+              <p class="setting-desc">Drop zone for imports and staging.</p>
+            </div>
+            <code class="setting-value">{{ info.inbox_path }}</code>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Scan Interval</p>
+              <p class="setting-desc">Automatic scanner cadence.</p>
+            </div>
+            <span class="setting-value">{{ info.scan_interval }}s</span>
+          </div>
+        </div>
+        <div v-else-if="loadError" class="panel-error">{{ loadError }}</div>
+        <div v-else class="panel-empty">Loading runtime information…</div>
+
+        <p v-if="scanMessage" class="scan-feedback">{{ scanMessage }}</p>
+      </section>
+
+      <section class="card settings-card">
+        <div class="card-head">
+          <div>
+            <h3>Downloads</h3>
+            <p class="card-copy">Queue settings currently active on the server.</p>
+          </div>
+        </div>
+
+        <div v-if="info" class="setting-list">
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Downloads Path</p>
+              <p class="setting-desc">Default target base for scheduled and manual downloads.</p>
+            </div>
+            <code class="setting-value">{{ info.downloads_path }}</code>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Concurrent Downloads</p>
+              <p class="setting-desc">Parallel downloader workers.</p>
+            </div>
+            <span class="setting-value">{{ info.max_concurrent_downloads }}</span>
+          </div>
+          <div class="setting-row">
+            <div>
+              <p class="setting-name">Rate Limit Delay</p>
+              <p class="setting-desc">Pause between requests to the same source.</p>
+            </div>
+            <span class="setting-value">{{ info.rate_limit_delay }}ms</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card settings-card settings-card--overview">
+        <div class="card-head">
+          <div>
+            <h3>Overview</h3>
+            <p class="card-copy">Quick health snapshot for this instance.</p>
+          </div>
+        </div>
+
+        <div v-if="info" class="overview-stats">
+          <div class="overview-stat">
+            <span class="overview-label">Version</span>
+            <strong>{{ info.version }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Media</span>
+            <strong>{{ info.media_count }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Plugins</span>
+            <strong>{{ info.plugin_count }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Active downloads</span>
+            <strong>{{ info.downloads_active }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Failed downloads</span>
+            <strong>{{ info.downloads_failed }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Auto-tag queue</span>
+            <strong>{{ info.autotag_pending }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Active tasks</span>
+            <strong>{{ info.background_tasks_active }}</strong>
+          </div>
+          <div class="overview-stat">
+            <span class="overview-label">Failed tasks</span>
+            <strong>{{ info.background_tasks_failed }}</strong>
+          </div>
+        </div>
+
+        <div v-if="info" class="status-list">
+          <div class="status-row">
+            <span>Plugin runtime</span>
+            <strong>{{ info.plugins_enabled ? 'Enabled' : 'Disabled' }}</strong>
+          </div>
+          <div class="status-row">
+            <span>Registration</span>
+            <strong>{{ info.registration_enabled ? 'Open' : 'Closed' }}</strong>
+          </div>
+          <div class="status-row">
+            <span>Schedules</span>
+            <strong>{{ info.schedules_enabled }} / {{ info.schedules_total }} enabled</strong>
+          </div>
+          <div class="status-row">
+            <span>Last completed download</span>
+            <strong>{{ lastCompletedDownloadLabel }}</strong>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="maintenance-grid">
+      <button
+        type="button"
+        :class="['card maintenance-card', { 'maintenance-card--active': activeSection === 'duplicates' }]"
+        @click="openSection('duplicates')"
+      >
+        <div>
+          <span class="maintenance-eyebrow">Maintenance</span>
+          <h3>Duplicate review</h3>
+          <p class="panel-copy">Open the resolver only when you need it, instead of keeping it permanently embedded here.</p>
+        </div>
+        <span class="maintenance-link">{{ activeSection === 'duplicates' ? 'Open below' : 'Open section' }}</span>
+      </button>
+
+      <button
+        type="button"
+        :class="['card maintenance-card', { 'maintenance-card--active': activeSection === 'plugins' }]"
+        @click="openSection('plugins')"
+      >
+        <div>
+          <span class="maintenance-eyebrow">Maintenance</span>
+          <h3>Plugin management</h3>
+          <p class="panel-copy">
+            {{ authStore.isAdmin ? 'Admin-only plugin controls and discovery tools.' : 'Visible as a status card for non-admin accounts.' }}
+          </p>
+        </div>
+        <span class="maintenance-link">{{ activeSection === 'plugins' ? 'Open below' : 'Open section' }}</span>
+      </button>
+    </section>
+
+    <div v-if="activeSection === 'duplicates'" id="duplicates" class="card settings-panel">
       <DuplicatesPage embedded />
     </div>
 
-    <div id="plugins" class="card settings-panel">
-      <PluginsPage embedded />
+    <div v-if="activeSection === 'plugins'" id="plugins" class="card settings-panel">
+      <template v-if="authStore.isAdmin">
+        <PluginsPage embedded />
+      </template>
+      <template v-else>
+        <div class="locked-panel">
+          <h3>Plugins</h3>
+          <p class="panel-copy">Plugin management is available for admin accounts only.</p>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { libraryApi } from '@/api/libraryApi'
+import { systemApi, type SystemInfo } from '@/api/systemApi'
+import { useAuthStore } from '@/stores/authStore'
 import DuplicatesPage from '@/pages/DuplicatesPage.vue'
 import PluginsPage from '@/pages/PluginsPage.vue'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
+
+const info = ref<SystemInfo | null>(null)
+const loadingInfo = ref(true)
+const loadError = ref('')
+const scanning = ref(false)
+const scanState = ref<'idle' | 'success' | 'error'>('idle')
+
+const scanMessage = computed(() => {
+  if (scanState.value === 'success') return 'Scan queued successfully.'
+  if (scanState.value === 'error') return 'Scan could not be started.'
+  return ''
+})
+const lastCompletedDownloadLabel = computed(() => {
+  if (!info.value?.last_completed_download) return 'No completed downloads yet'
+  return new Date(info.value.last_completed_download).toLocaleString()
+})
+const activeSection = computed(() =>
+  route.query.section === 'duplicates' || route.query.section === 'plugins'
+    ? route.query.section
+    : '',
+)
+
+async function loadSystemInfo() {
+  loadingInfo.value = true
+  loadError.value = ''
+  try {
+    info.value = await systemApi.info()
+  } catch (error) {
+    loadError.value = error instanceof Error ? error.message : 'Failed to load system information'
+  } finally {
+    loadingInfo.value = false
+  }
+}
 
 async function scanNow() {
-  await libraryApi.scan()
+  if (scanning.value) return
+  scanning.value = true
+  scanState.value = 'idle'
+  try {
+    await libraryApi.scan()
+    scanState.value = 'success'
+    await loadSystemInfo()
+  } catch {
+    scanState.value = 'error'
+  } finally {
+    scanning.value = false
+  }
 }
 
 onMounted(async () => {
-  await scrollToSection(route.query.section)
+  await Promise.all([
+    loadSystemInfo(),
+    scrollToSection(route.query.section),
+  ])
 })
 
 watch(() => route.query.section, (section) => {
   void scrollToSection(section)
 })
+
+function openSection(section: 'duplicates' | 'plugins') {
+  const nextSection = activeSection.value === section ? undefined : section
+  void router.replace({
+    name: 'settings',
+    query: {
+      ...route.query,
+      section: nextSection,
+    },
+  })
+}
 
 async function scrollToSection(section: unknown) {
   await nextTick()
@@ -92,50 +295,271 @@ async function scrollToSection(section: unknown) {
 </script>
 
 <style scoped>
-.settings-page { display: flex; flex-direction: column; gap: 24px; }
-.page-title { font-size: 22px; font-weight: 700; }
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.page-copy {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
 }
 
-.settings-card {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
+.settings-card,
 .settings-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.settings-card h3 { font-size: 15px; font-weight: 600; }
+.maintenance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.maintenance-card {
+  appearance: none;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+    var(--bg-card);
+}
+
+.maintenance-card--active {
+  border-color: rgba(245, 158, 11, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.12);
+}
+
+.maintenance-eyebrow {
+  display: inline-flex;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.maintenance-card h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.maintenance-link {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-card--overview {
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 40%),
+    var(--bg-card);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.card-copy,
+.panel-copy {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  color: #86efac;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.status-pill--loading {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: var(--text-muted);
+}
+
+.setting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 .setting-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 20px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.setting-name { font-size: 14px; font-weight: 500; }
-.setting-desc { font-size: 12px; color: var(--text-muted); }
+.setting-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
 
-.input {
-  background: var(--bg-hover);
+.setting-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.setting-desc {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.setting-value {
+  max-width: 48%;
+  padding: 7px 10px;
+  border-radius: 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--bg-surface);
   color: var(--text-primary);
-  padding: 7px 12px;
-  font-size: 13px;
-  outline: none;
-  width: 120px;
+  font-size: 12px;
+  text-align: right;
+  word-break: break-word;
 }
-.input:focus { border-color: var(--accent); }
 
-.about-text { font-size: 14px; color: var(--text-secondary); line-height: 1.8; }
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.overview-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.overview-stat strong {
+  font-size: 20px;
+  color: var(--text-primary);
+}
+
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+
+.scan-feedback,
+.panel-empty,
+.panel-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.panel-error {
+  color: #fca5a5;
+}
+
+.locked-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.locked-panel h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+@media (max-width: 720px) {
+  .page-head {
+    align-items: stretch;
+  }
+
+  .page-head .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .setting-value {
+    max-width: 100%;
+    width: 100%;
+    text-align: left;
+  }
+
+  .overview-stats {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

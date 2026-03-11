@@ -4,10 +4,10 @@
   <!-- Manga Reader (fullscreen overlay) -->
   <MangaReader
     v-else-if="media && showReader && pages"
-    :mediaId="media.id"
-    :totalPages="pages.total_pages"
+    :media-id="media.id"
+    :total-pages="pages.total_pages"
     :pages="pages.pages"
-    :initialPage="media.read_progress || 0"
+    :initial-page="media.read_progress || 0"
     @close="showReader = false"
     @pagechange="onPageChange"
   />
@@ -15,7 +15,7 @@
   <div v-else-if="media" class="media-detail">
     <!-- Header -->
     <div class="detail-header">
-      <button class="btn btn-ghost btn-sm" @click="router.back()">← Back</button>
+      <button type="button" class="btn btn-ghost btn-sm" @click="router.back()">Back</button>
       <h1 class="detail-title">{{ media.title }}</h1>
       <div class="header-nav">
         <button
@@ -32,10 +32,16 @@
         >Next ›</button>
       </div>
       <button
+        type="button"
         :class="['btn btn-ghost', { 'fav-active': media.favorite }]"
+        :aria-pressed="media.favorite"
+        :aria-label="media.favorite ? 'Remove from favorites' : 'Add to favorites'"
         @click="toggleFav"
-      >♥ {{ media.favorite ? 'Unfavorite' : 'Favorite' }}</button>
-      <button class="btn btn-danger btn-sm" @click="showDeleteDialog = true">Delete</button>
+      >
+        <AppIcon name="heart" :size="15" :filled="media.favorite" />
+        {{ media.favorite ? 'Unfavorite' : 'Favorite' }}
+      </button>
+      <button type="button" class="btn btn-danger btn-sm" @click="showDeleteDialog = true">Delete</button>
     </div>
 
     <!-- Body -->
@@ -46,7 +52,7 @@
           v-if="media.type === 'video'"
           :src="mediaAssetUrl(media.id, 'file')"
           :poster="thumbnailAssetUrl"
-          :initialTime="media.read_progress || 0"
+          :initial-time="media.read_progress || 0"
           @timeupdate="onVideoTimeUpdate"
           @ended="onVideoEnded"
         />
@@ -66,12 +72,17 @@
             class="media-image archive-thumb"
             @error="onImgError"
           />
-          <div v-else class="media-placeholder">{{ typeIcon(media.type) }}</div>
-          <button class="btn btn-primary read-btn" @click="openReader">
-            📖 Read
+          <div v-else class="media-placeholder">
+            <AppIcon :name="typeIcon(media.type)" :size="34" />
+          </div>
+          <button type="button" class="btn btn-primary read-btn" @click="openReader">
+            <AppIcon name="book" :size="15" />
+            Read archive
           </button>
         </div>
-        <div v-else class="media-placeholder">{{ typeIcon(media.type) }}</div>
+        <div v-else class="media-placeholder">
+          <AppIcon :name="typeIcon(media.type)" :size="34" />
+        </div>
       </div>
 
       <!-- Meta -->
@@ -80,21 +91,25 @@
         <div class="meta-section">
           <span class="meta-label">Rating</span>
           <div class="rating-tools">
-            <div class="stars">
-              <span
+            <div class="stars" @mouseleave="hoveredMediaRating = null">
+              <button
                 v-for="i in 5" :key="i"
+                type="button"
                 :class="['star', { 'star--on': i <= (hoveredMediaRating ?? media.rating ?? 0) }]"
+                :aria-label="`Set rating to ${i} star${i === 1 ? '' : 's'}`"
+                :aria-pressed="media.rating === i"
                 @click="setRating(i)"
                 @mouseenter="hoveredMediaRating = i"
-                @mouseleave="hoveredMediaRating = null"
-              >★</span>
+              >★</button>
             </div>
             <button
+              type="button"
               class="btn btn-secondary btn-sm autotag-btn"
               :disabled="autoTagging"
               @click="runAutoTag"
             >
-              {{ autoTagging ? '⏳ Tagging…' : '🏷️ Auto-Tag' }}
+              <AppIcon :name="autoTagging ? 'spark' : 'tag'" :size="14" />
+              {{ autoTagging ? 'Tagging…' : 'Auto-tag' }}
             </button>
           </div>
         </div>
@@ -289,7 +304,7 @@
         <div v-if="duplicates.length > 0" class="meta-section">
           <span class="meta-label">Duplicates</span>
           <RouterLink :to="{ name: 'settings', query: { section: 'duplicates' } }" class="dup-warning">
-            ⚠️ {{ duplicates.length }} duplicate{{ duplicates.length !== 1 ? 's' : '' }} found
+            {{ duplicates.length }} duplicate{{ duplicates.length !== 1 ? 's' : '' }} found
           </RouterLink>
         </div>
 
@@ -307,31 +322,36 @@
     @apply="onApplyTags"
   />
 
-  <div v-if="showDeleteDialog" class="dialog-overlay" @click.self="showDeleteDialog = false">
-    <div class="dialog-card">
-      <h3>Delete Media</h3>
-      <p>Wähle, ob nur der Library-Eintrag entfernt werden soll oder die Datei zusätzlich lokal gelöscht wird.</p>
-      <div class="dialog-actions">
-        <button class="btn btn-ghost" @click="showDeleteDialog = false">Cancel</button>
-        <button class="btn btn-secondary" :disabled="deletingMedia" @click="deleteMedia(false)">
-          {{ deletingMedia ? 'Deleting…' : 'Database Only' }}
-        </button>
-        <button class="btn btn-danger" :disabled="deletingMedia" @click="deleteMedia(true)">
-          {{ deletingMedia ? 'Deleting…' : 'Delete Local Too' }}
-        </button>
-      </div>
-    </div>
-  </div>
+  <ModalShell
+    v-if="showDeleteDialog"
+    title="Delete media"
+    description="Choose whether to remove only the library entry or delete the local file as well."
+    size="sm"
+    @close="showDeleteDialog = false"
+  >
+    <template #actions>
+      <button type="button" class="btn btn-ghost" @click="showDeleteDialog = false">Cancel</button>
+      <button type="button" class="btn btn-secondary" :disabled="deletingMedia" @click="deleteMedia(false)">
+        {{ deletingMedia ? 'Deleting…' : 'Database Only' }}
+      </button>
+      <button type="button" class="btn btn-danger" :disabled="deletingMedia" @click="deleteMedia(true)">
+        {{ deletingMedia ? 'Deleting…' : 'Delete Local Too' }}
+      </button>
+    </template>
+  </ModalShell>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { mediaApi, mediaAssetUrl, mediaPageUrl, type Media, type PagesResponse } from '@/api/mediaApi'
 import { autotagApi, type AutoTagResult, type SuggestedTag } from '@/api/autotagApi'
 import { collectionApi, type Collection } from '@/api/collectionApi'
 import { dedupApi, type DuplicateItem } from '@/api/dedupApi'
 import { useMediaStore } from '@/stores/mediaStore'
+import { useNoticeStore } from '@/stores/noticeStore'
+import AppIcon from '@/components/Layout/AppIcon.vue'
+import ModalShell from '@/components/Layout/ModalShell.vue'
 import TagBadge from '@/components/Tags/TagBadge.vue'
 import VideoPlayer from '@/components/Player/VideoPlayer.vue'
 import MangaReader from '@/components/Reader/MangaReader.vue'
@@ -340,6 +360,7 @@ import AutoTagDialog from '@/components/AutoTag/AutoTagDialog.vue'
 const route = useRoute()
 const router = useRouter()
 const mediaStore = useMediaStore()
+const { pushNotice } = useNoticeStore()
 
 const media = ref<Media | null>(null)
 const loading = ref(true)
@@ -370,6 +391,7 @@ const editForm = ref({
   source_url: '',
   tags: '',
 })
+let activeLoadToken = 0
 
 // Debounce timer for progress saves
 let progressTimer: ReturnType<typeof setTimeout> | null = null
@@ -420,20 +442,31 @@ function goToNext() {
   router.push({ name: 'media-detail', params: { id: next.id } })
 }
 
-onMounted(async () => {
+watch(() => route.params.id, (id) => {
+  if (typeof id === 'string' && id) {
+    void loadMediaDetail(id)
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  clearProgressTimers()
+})
+
+async function loadMediaDetail(id: string) {
+  const loadToken = ++activeLoadToken
+  loading.value = true
+  resetDetailState()
   try {
-    const res = await mediaApi.get(route.params.id as string)
+    const res = await mediaApi.get(id)
+    if (loadToken !== activeLoadToken) return
     media.value = res.data
     syncEditForm(res.data)
 
     // Load pages for archive types
-    if (
-      res.data.type === 'manga' ||
-      res.data.type === 'comic' ||
-      res.data.type === 'doujinshi'
-    ) {
+    if (isArchiveType(res.data.type)) {
       try {
         const pRes = await mediaApi.getPages(res.data.id)
+        if (loadToken !== activeLoadToken) return
         pages.value = pRes.data
       } catch {
         // Non-fatal: archive may not be accessible
@@ -441,26 +474,36 @@ onMounted(async () => {
     }
 
     // Load duplicates (non-blocking)
-    loadDuplicates(res.data.id)
-    loadCollections(res.data.id)
+    void loadDuplicates(res.data.id, loadToken)
+    void loadCollections(res.data.id, loadToken)
+  } catch {
+    if (loadToken === activeLoadToken) {
+      media.value = null
+    }
   } finally {
-    loading.value = false
-  }
-})
-
-async function loadCollections(id: string) {
-  loadingCollections.value = true
-  try {
-    const res = await collectionApi.listForMedia(id)
-    collections.value = res.data ?? []
-  } finally {
-    loadingCollections.value = false
+    if (loadToken === activeLoadToken) {
+      loading.value = false
+    }
   }
 }
 
-async function loadDuplicates(id: string) {
+async function loadCollections(id: string, loadToken = activeLoadToken) {
+  loadingCollections.value = true
+  try {
+    const res = await collectionApi.listForMedia(id)
+    if (loadToken !== activeLoadToken) return
+    collections.value = res.data ?? []
+  } finally {
+    if (loadToken === activeLoadToken) {
+      loadingCollections.value = false
+    }
+  }
+}
+
+async function loadDuplicates(id: string, loadToken = activeLoadToken) {
   try {
     const res = await dedupApi.getDuplicatesForMedia(id)
+    if (loadToken !== activeLoadToken) return
     duplicates.value = res.data ?? []
   } catch {
     // Non-fatal: pHash may not be computed yet
@@ -475,7 +518,7 @@ async function runAutoTag() {
     autoTagResult.value = res.data
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Auto-tag failed'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     autoTagging.value = false
   }
@@ -491,7 +534,7 @@ async function onApplyTags(tags: SuggestedTag[]) {
     syncEditForm(res.data)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to apply tags'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     autoTagResult.value = null
   }
@@ -527,7 +570,7 @@ async function saveMetadata() {
     editingMetadata.value = false
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to save metadata'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     savingMetadata.value = false
   }
@@ -545,7 +588,7 @@ async function onThumbnailFileSelected(event: Event) {
     syncEditForm(res.data)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to upload thumbnail'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     savingThumbnail.value = false
     input.value = ''
@@ -563,7 +606,7 @@ async function applyThumbnailUrl() {
     thumbnailUrl.value = ''
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to fetch thumbnail'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     savingThumbnail.value = false
   }
@@ -584,7 +627,7 @@ async function toggleCollection(collectionId: string, checked: boolean) {
     )
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to update collection'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     savingCollectionId.value = ''
   }
@@ -614,7 +657,7 @@ async function deleteMedia(deleteFile: boolean) {
     router.push({ name: 'library' })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to delete media'
-    alert(msg)
+    pushNotice({ type: 'error', message: msg })
   } finally {
     deletingMedia.value = false
   }
@@ -661,11 +704,10 @@ function onVideoEnded() {
   mediaStore.saveProgress(media.value.id, 0, 0)
 }
 
-function typeIcon(type: string): string {
-  const icons: Record<string, string> = {
-    video: '🎬', image: '🖼️', manga: '📖', comic: '📕', doujinshi: '📗',
-  }
-  return icons[type] ?? '📄'
+function typeIcon(type: string): 'video' | 'image' | 'book' {
+  if (type === 'video') return 'video'
+  if (type === 'image') return 'image'
+  return 'book'
 }
 
 function formatBytes(b: number): string {
@@ -683,6 +725,38 @@ function syncEditForm(item: Media) {
     source_url: item.source_url ?? '',
     tags: (item.tags ?? []).map((tag) => tag.name).join(', '),
   }
+}
+
+function resetDetailState() {
+  clearProgressTimers()
+  media.value = null
+  imgError.value = false
+  pages.value = null
+  showReader.value = false
+  duplicates.value = []
+  collections.value = []
+  loadingCollections.value = false
+  savingCollectionId.value = ''
+  showDeleteDialog.value = false
+  autoTagResult.value = null
+  thumbnailUrl.value = ''
+  hoveredMediaRating.value = null
+  editingMetadata.value = false
+}
+
+function clearProgressTimers() {
+  if (progressTimer) {
+    clearTimeout(progressTimer)
+    progressTimer = null
+  }
+  if (videoProgressTimer) {
+    clearTimeout(videoProgressTimer)
+    videoProgressTimer = null
+  }
+}
+
+function isArchiveType(type: Media['type']) {
+  return type === 'manga' || type === 'comic' || type === 'doujinshi'
 }
 </script>
 
@@ -721,6 +795,12 @@ function syncEditForm(item: Media) {
   justify-content: center;
   min-height: min(78vh, 960px);
   max-height: min(78vh, 960px);
+}
+
+.detail-preview :deep(.vp-container) {
+  width: min(100%, calc(min(78vh, 960px) * 16 / 9));
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .media-image { width: 100%; height: auto; display: block; }
@@ -919,7 +999,17 @@ function syncEditForm(item: Media) {
 
 .rating-tools { display: flex; flex-direction: column; gap: 10px; }
 .stars { display: flex; gap: 4px; }
-.star { font-size: 20px; cursor: pointer; color: var(--border); transition: color 0.1s; }
+.star {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  line-height: 1;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--border);
+  transition: color 0.1s;
+}
 .star--on, .star:hover { color: var(--accent); }
 
 .tags-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -958,45 +1048,6 @@ function syncEditForm(item: Media) {
 
 .dup-warning:hover { background: rgba(245, 158, 11, 0.1); }
 
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 1100;
-}
-
-.dialog-card {
-  width: min(460px, calc(100vw - 32px));
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.dialog-card h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.dialog-card p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 </style>
 
 

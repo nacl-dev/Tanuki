@@ -18,7 +18,7 @@
       <div v-for="tag in store.tags" :key="tag.id" class="tag-item">
         <TagBadge :tag="tag" />
         <span class="tag-count">{{ tag.usage_count }}</span>
-        <button class="tag-delete" @click="store.remove(tag.id)">✕</button>
+        <button type="button" class="tag-delete" :aria-label="`Delete tag ${tag.name}`" @click="store.remove(tag.id)">Remove</button>
       </div>
     </div>
   </div>
@@ -84,6 +84,7 @@ onMounted(() => store.fetchAll())
   cursor: pointer;
   color: var(--text-muted);
   font-size: 10px;
+  padding: 2px 4px;
 }
 .tag-delete:hover { color: var(--danger); }
 </style>

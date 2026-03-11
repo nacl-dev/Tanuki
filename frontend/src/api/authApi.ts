@@ -32,6 +32,9 @@ export const authApi = {
       .post<{ data: LoginResponse }>('/auth/login', input)
       .then((r) => r.data.data),
 
+  logout: () =>
+    client.post<{ data: { logged_out: boolean } }>('/auth/logout').then((r) => r.data.data),
+
   me: () =>
     client.get<{ data: User }>('/auth/me').then((r) => r.data.data),
 

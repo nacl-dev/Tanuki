@@ -171,13 +171,7 @@ async function loadCollections(selectFirst = true) {
   loading.value = true
   try {
     const res = await collectionApi.list()
-    const items = await Promise.all((res.data ?? []).map(async (collection) => {
-      const detail = await collectionApi.get(collection.id)
-      return {
-        ...collection,
-        items: detail.data.items ?? [],
-      }
-    }))
+    const items = res.data ?? []
     collections.value = items
     if (selectFirst && items.length && !selectedId.value) {
       await selectCollection(items[0].id)

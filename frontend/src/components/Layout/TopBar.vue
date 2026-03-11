@@ -1,15 +1,12 @@
 <template>
   <header class="topbar">
+    <button type="button" class="menu-btn" aria-label="Open navigation" @click="$emit('toggle-sidebar')">
+      <AppIcon name="menu" :size="18" />
+    </button>
     <div class="topbar-search">
       <SearchBar />
     </div>
     <div class="topbar-actions">
-      <button class="btn btn-secondary" :disabled="tagging" @click="triggerAutoTag">
-        {{ tagging ? 'Queuing…' : 'Auto-Tag' }}
-      </button>
-      <button class="btn btn-primary" :disabled="scanning" @click="triggerScan">
-        {{ scanning ? 'Scanning…' : 'Scan Library' }}
-      </button>
       <div class="user-info" v-if="authStore.user">
         <span class="user-name">
           {{ authStore.user.display_name || authStore.user.username }}
@@ -22,40 +19,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 import SearchBar from '@/components/Search/SearchBar.vue'
-import { useMediaStore } from '@/stores/mediaStore'
 import { useAuthStore } from '@/stores/authStore'
-import { autotagApi } from '@/api/autotagApi'
-import { libraryApi } from '@/api/libraryApi'
 
-const mediaStore = useMediaStore()
+defineEmits<{
+  'toggle-sidebar': []
+}>()
+
 const authStore = useAuthStore()
 const router = useRouter()
-const scanning = ref(false)
-const tagging = ref(false)
-
-async function triggerScan() {
-  if (scanning.value) return
-  scanning.value = true
-  try {
-    await libraryApi.scan()
-    await mediaStore.fetchList()
-  } finally {
-    scanning.value = false
-  }
-}
-
-async function triggerAutoTag() {
-  if (tagging.value) return
-  tagging.value = true
-  try {
-    await autotagApi.autotagBatch('all_untagged')
-  } finally {
-    tagging.value = false
-  }
-}
 
 function onLogout() {
   authStore.logout()
@@ -75,7 +49,20 @@ function onLogout() {
   flex-shrink: 0;
 }
 
-.topbar-search { flex: 1; max-width: 480px; }
+.menu-btn {
+  display: none;
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.topbar-search { flex: 1; min-width: 0; max-width: 560px; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 
 .user-info {
@@ -122,14 +109,32 @@ function onLogout() {
   .topbar {
     height: auto;
     min-height: var(--topbar-height);
-    align-items: flex-start;
+    flex-wrap: wrap;
     padding-top: 10px;
     padding-bottom: 10px;
   }
 
+  .menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .topbar-search {
+    flex-basis: calc(100% - 52px);
+    max-width: none;
+  }
+
   .topbar-actions {
+    width: 100%;
+    margin-left: 0;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: space-between;
+  }
+
+  .user-info {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 </style>

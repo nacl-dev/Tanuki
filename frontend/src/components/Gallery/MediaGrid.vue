@@ -1,7 +1,7 @@
 <template>
   <div v-if="loading" class="grid-loading">Loading…</div>
   <div v-else-if="items.length === 0" class="grid-empty">No media found.</div>
-  <div v-else class="media-grid">
+  <div v-else :class="['media-grid', `media-grid--${density}`]">
     <MediaCard v-for="item in items" :key="item.id" :media="item" />
   </div>
 </template>
@@ -13,6 +13,7 @@ import MediaCard from './MediaCard.vue'
 defineProps<{
   items: Media[]
   loading?: boolean
+  density?: 'cozy' | 'compact'
 }>()
 </script>
 
@@ -21,6 +22,11 @@ defineProps<{
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 16px;
+}
+
+.media-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
 }
 
 .grid-loading,

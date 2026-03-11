@@ -13,6 +13,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/scanner"
+	"github.com/nacl-dev/tanuki/internal/taskqueue"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"go.uber.org/zap"
 )
@@ -24,17 +25,25 @@ type LibraryHandler struct {
 	thumbPath string
 	inboxPath string
 	log       *zap.Logger
+	tasks     *taskqueue.Manager
 }
 
 // Scan triggers an immediate filesystem scan.
 // POST /api/library/scan
 func (h *LibraryHandler) Scan(c *gin.Context) {
-	sc := scanner.New(h.db, h.mediaPath, h.thumbPath, h.log)
-	if err := sc.Run(context.Background()); err != nil {
-		respondError(c, http.StatusInternalServerError, "scan library: "+err.Error())
-		return
-	}
-	c.JSON(http.StatusAccepted, envelope{Data: gin.H{"message": "scan completed"}})
+	task := h.tasks.Start("library.scan", c.GetString("userID"), map[string]any{
+		"media_path": h.mediaPath,
+	}, func(ctx context.Context, handle *taskqueue.Handle) (any, error) {
+		handle.SetMessage("Scanning library")
+		sc := scanner.New(h.db, h.mediaPath, h.thumbPath, h.log)
+		if err := sc.Run(ctx); err != nil {
+			return nil, fmt.Errorf("scan library: %w", err)
+		}
+		handle.SetMessage("Library scan completed")
+		handle.SetProgress(1, 1)
+		return gin.H{"message": "scan completed"}, nil
+	})
+	respondAccepted(c, gin.H{"message": "scan queued", "task_id": task.ID}, nil)
 }
 
 // Organize moves or copies recognized media files from a staging directory under
@@ -70,27 +79,50 @@ func (h *LibraryHandler) Organize(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.organizeDirectory(sourcePath, mode, body.Preview)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "organize library: "+err.Error())
-		return
-	}
-
 	if body.Preview {
-		c.JSON(http.StatusAccepted, envelope{Data: stats})
+		stats, err := h.organizeDirectory(sourcePath, mode, true)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "organize library: "+err.Error())
+			return
+		}
+		respondAccepted(c, stats, nil)
 		return
 	}
 
-	sc := scanner.New(h.db, h.mediaPath, h.thumbPath, h.log)
-	if err := sc.Run(context.Background()); err != nil {
-		respondError(c, http.StatusInternalServerError, "scan library: "+err.Error())
-		return
-	}
-	if err := h.generateThumbnailsForOrganizedItems(c.Request.Context(), stats); err != nil {
-		h.log.Warn("library: generate thumbnails after organize", zap.Error(err))
-	}
+	task := h.tasks.Start("library.organize", c.GetString("userID"), map[string]any{
+		"source_path": sourcePath,
+		"mode":        mode,
+	}, func(ctx context.Context, handle *taskqueue.Handle) (any, error) {
+		handle.SetMessage("Organizing files")
+		handle.SetProgress(0, 3)
 
-	c.JSON(http.StatusAccepted, envelope{Data: stats})
+		organizedStats, err := h.organizeDirectory(sourcePath, mode, false)
+		if err != nil {
+			return nil, fmt.Errorf("organize library: %w", err)
+		}
+
+		handle.SetProgress(1, 3)
+		handle.SetMessage("Refreshing library index")
+		sc := scanner.New(h.db, h.mediaPath, h.thumbPath, h.log)
+		if err := sc.Run(ctx); err != nil {
+			return nil, fmt.Errorf("scan library: %w", err)
+		}
+
+		handle.SetProgress(2, 3)
+		handle.SetMessage("Generating thumbnails")
+		if err := h.generateThumbnailsForOrganizedItems(ctx, organizedStats); err != nil {
+			h.log.Warn("library: generate thumbnails after organize", zap.Error(err))
+		}
+
+		handle.SetProgress(3, 3)
+		handle.SetMessage("Library organize completed")
+		return organizedStats, nil
+	})
+
+	respondAccepted(c, gin.H{
+		"message": "organize queued",
+		"task_id": task.ID,
+	}, nil)
 }
 
 type organizeStats struct {

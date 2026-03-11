@@ -3,13 +3,14 @@
     class="mr-overlay"
     tabindex="0"
     ref="overlay"
+    aria-label="Manga reader"
     @keydown="onKey"
     @wheel.prevent="onWheel"
   >
     <!-- Toolbar -->
     <div class="mr-toolbar" :class="{ 'mr-toolbar-hidden': toolbarHidden }">
       <div class="mr-toolbar-left">
-        <button class="mr-btn" @click="emit('close')" title="Back">← Back</button>
+        <button type="button" class="mr-btn" @click="emit('close')" title="Back">Back</button>
         <span class="mr-page-indicator">Page {{ currentPage + 1 }} / {{ totalPages }}</span>
       </div>
       <div class="mr-toolbar-center">
@@ -17,21 +18,23 @@
           v-for="m in readingModes"
           :key="m.value"
           :class="['mr-btn', { 'mr-btn-active': mode === m.value }]"
+          type="button"
           @click="mode = m.value"
           :title="m.label"
         >{{ m.label }}</button>
         <button
+          type="button"
           :class="['mr-btn', { 'mr-btn-active': rtl }]"
           @click="rtl = !rtl"
           title="RTL (right-to-left)"
         >RTL</button>
       </div>
       <div class="mr-toolbar-right">
-        <button class="mr-btn" @click="setZoom('fit-width')" :class="{ 'mr-btn-active': zoomMode === 'fit-width' }">Fit W</button>
-        <button class="mr-btn" @click="setZoom('fit-height')" :class="{ 'mr-btn-active': zoomMode === 'fit-height' }">Fit H</button>
-        <button class="mr-btn" @click="zoomIn" title="Zoom in (+)">＋</button>
-        <button class="mr-btn" @click="zoomOut" title="Zoom out (-)">－</button>
-        <button class="mr-btn" @click="toggleFullscreen" :title="isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'">
+        <button type="button" class="mr-btn" @click="setZoom('fit-width')" :class="{ 'mr-btn-active': zoomMode === 'fit-width' }">Fit W</button>
+        <button type="button" class="mr-btn" @click="setZoom('fit-height')" :class="{ 'mr-btn-active': zoomMode === 'fit-height' }">Fit H</button>
+        <button type="button" class="mr-btn" aria-label="Zoom in" @click="zoomIn" title="Zoom in (+)">+</button>
+        <button type="button" class="mr-btn" aria-label="Zoom out" @click="zoomOut" title="Zoom out (-)">-</button>
+        <button type="button" class="mr-btn" @click="toggleFullscreen" :title="isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'">
           {{ isFullscreen ? 'Exit Full' : 'Fullscreen' }}
         </button>
       </div>
@@ -421,6 +424,11 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.mr-overlay:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* Toolbar */
 .mr-toolbar {
   position: absolute;
@@ -473,6 +481,12 @@ onUnmounted(() => {
 
 .mr-btn:hover { background: rgba(245,158,11,0.25); color: #f59e0b; }
 .mr-btn-active { background: rgba(245,158,11,0.3); color: #f59e0b; border-color: #f59e0b; }
+
+.mr-btn:focus-visible,
+.mr-scrubber-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 
 /* Viewport */
 .mr-viewport {

@@ -49,6 +49,7 @@ It combines:
   - `comic`
   - `doujinshi`
 - Automatic type detection for common video, image and archive files
+- Archive reader support for `.cbz`, `.zip`, `.rar` and `.cbr` through `bsdtar`
 - Automatic thumbnail generation for local media
 - Frontend metadata editing:
   - title
@@ -160,6 +161,7 @@ Open:
 - media library: `/media`
 - inbox: `/inbox`
 - thumbnails: `/thumbnails`
+- downloads: `/media`
 
 ### On the host
 
@@ -296,7 +298,18 @@ Tanuki/
 - `media/` and `inbox/` are runtime data, not source files
 - empty runtime folders are intentionally not tracked in Git
 - downloaded media should not be committed
-- older docs or comments may still mention earlier paths like `/downloads`; the current Docker setup writes into `/media`
+- current Docker defaults write downloads into `/media`; use `DOWNLOADS_PATH` only if you want a different allowed root
+
+## 👥 Multi-user Behavior
+
+Current behavior is shared-library first:
+
+- media, tags, collections and downloads operate on one shared library dataset
+- authentication controls access and admin-only actions
+- plugins are admin-only
+- `owner_id` exists in the schema, but the product currently behaves like a shared vault rather than strict per-user isolation
+
+If you need hard multi-user isolation, plan that as a dedicated follow-up instead of assuming it today.
 
 ## 📄 License
 

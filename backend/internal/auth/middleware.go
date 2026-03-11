@@ -12,20 +12,22 @@ const (
 	contextRole   = "role"
 )
 
+const authCookieName = "tanuki_auth"
+
 // AuthRequired returns a Gin middleware that validates a JWT from either the
-// Authorization header or a token query parameter. On success it sets "userID"
-// and "role" in the context. On failure it aborts with 401 Unauthorized.
+// Authorization header or the auth cookie. On success it sets "userID" and
+// "role" in the context. On failure it aborts with 401 Unauthorized.
 func AuthRequired(secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr := ""
 		header := c.GetHeader("Authorization")
 		if strings.HasPrefix(header, "Bearer ") {
 			tokenStr = strings.TrimPrefix(header, "Bearer ")
-		} else {
-			tokenStr = c.Query("token")
+		} else if cookie, err := c.Cookie(authCookieName); err == nil {
+			tokenStr = cookie
 		}
 		if tokenStr == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization header required"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization required"})
 			return
 		}
 

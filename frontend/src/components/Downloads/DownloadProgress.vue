@@ -31,11 +31,11 @@
     <div v-if="job.error_message" class="dl-item__error">{{ job.error_message }}</div>
 
     <div class="dl-item__actions">
-      <button v-if="job.status === 'downloading'" class="btn btn-ghost btn-sm" @click="emit('control', 'pause')">⏸</button>
-      <button v-if="job.status === 'paused'"      class="btn btn-ghost btn-sm" @click="emit('control', 'resume')">▶️</button>
-      <button v-if="job.status === 'failed'"      class="btn btn-ghost btn-sm" @click="emit('control', 'retry')">🔄 Retry</button>
-      <button v-if="canCancel"                    class="btn btn-ghost btn-sm" @click="emit('control', 'cancel')">✕ Cancel</button>
-      <button class="btn btn-ghost btn-sm" @click="emit('remove')">🗑</button>
+      <button v-if="job.status === 'downloading'" type="button" class="btn btn-ghost btn-sm" aria-label="Pause download" @click="emit('control', 'pause')">Pause</button>
+      <button v-if="job.status === 'paused'" type="button" class="btn btn-ghost btn-sm" aria-label="Resume download" @click="emit('control', 'resume')">Resume</button>
+      <button v-if="job.status === 'failed'" type="button" class="btn btn-ghost btn-sm" aria-label="Retry download" @click="emit('control', 'retry')">Retry</button>
+      <button v-if="canCancel" type="button" class="btn btn-ghost btn-sm" aria-label="Cancel download" @click="emit('control', 'cancel')">Cancel</button>
+      <button type="button" class="btn btn-ghost btn-sm" aria-label="Remove download from list" @click="emit('remove')">Remove</button>
     </div>
   </div>
 </template>

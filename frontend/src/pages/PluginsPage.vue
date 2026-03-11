@@ -66,27 +66,47 @@
       </div>
     </div>
   </div>
+
+  <ConfirmDialog
+    v-if="pendingDelete"
+    title="Remove Plugin"
+    :message="pendingDeleteMessage"
+    confirm-label="Remove"
+    @cancel="pendingDelete = null"
+    @confirm="removePlugin"
+  />
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { usePluginStore } from '@/stores/pluginStore'
 import type { Plugin } from '@/api/pluginApi'
+import ConfirmDialog from '@/components/Layout/ConfirmDialog.vue'
 
 withDefaults(defineProps<{ embedded?: boolean }>(), {
   embedded: false,
 })
 
 const store = usePluginStore()
+const pendingDelete = ref<Plugin | null>(null)
+const pendingDeleteMessage = computed(() =>
+  pendingDelete.value
+    ? `Remove plugin "${pendingDelete.value.name}"? This will also delete the plugin file.`
+    : '',
+)
 
 onMounted(() => {
   store.fetchPlugins()
 })
 
 function confirmDelete(plugin: Plugin) {
-  if (confirm(`Remove plugin "${plugin.name}"? This will also delete the plugin file.`)) {
-    store.removePlugin(plugin.id)
-  }
+  pendingDelete.value = plugin
+}
+
+async function removePlugin() {
+  if (!pendingDelete.value) return
+  await store.removePlugin(pendingDelete.value.id)
+  pendingDelete.value = null
 }
 </script>
 

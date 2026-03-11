@@ -1,15 +1,19 @@
 <template>
   <div class="downloads-page">
-    <h2 class="page-title">Download Manager</h2>
+    <section class="downloads-hero card">
+      <div>
+        <span class="downloads-hero__eyebrow">Downloads</span>
+        <h2 class="page-title">Capture new items without leaving the queue behind.</h2>
+        <p class="page-copy">Form and schedules stay together, while the active queue gets the wider reading area.</p>
+      </div>
+    </section>
 
     <div class="downloads-layout">
-      <!-- Left: form + schedules -->
       <div class="downloads-sidebar">
         <DownloadForm />
         <ScheduleManager />
       </div>
 
-      <!-- Right: queue -->
       <div class="downloads-main">
         <DownloadQueue />
       </div>
@@ -25,21 +29,53 @@ import ScheduleManager from '@/components/Downloads/ScheduleManager.vue'
 
 <style scoped>
 .downloads-page { display: flex; flex-direction: column; gap: 24px; }
-.page-title { font-size: 22px; font-weight: 700; }
+
+.downloads-hero {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+    var(--bg-card);
+}
+
+.downloads-hero__eyebrow {
+  display: inline-flex;
+  margin-bottom: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--info);
+}
+
+.page-title {
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.page-copy {
+  margin-top: 8px;
+  max-width: 680px;
+  color: var(--text-muted);
+}
 
 .downloads-layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: 24px;
   align-items: flex-start;
 }
 
 .downloads-sidebar {
-  width: 320px;
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
 .downloads-main { flex: 1; }
+
+@media (max-width: 980px) {
+  .downloads-layout {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

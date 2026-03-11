@@ -41,6 +41,7 @@ RUN apk add --no-cache \
     tzdata \
     ffmpeg \
     vips \
+    libarchive-tools \
     python3 \
     py3-pip \
     curl

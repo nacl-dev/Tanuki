@@ -9,6 +9,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/taskqueue"
 	"go.uber.org/zap"
 )
 
@@ -16,17 +17,18 @@ import (
 type AutoTagHandler struct {
 	db      *database.DB
 	service *autotag.Service
+	tasks   *taskqueue.Manager
 }
 
 // newAutoTagHandler creates an AutoTagHandler using the provided config and logger.
-func newAutoTagHandler(db *database.DB, cfg *config.Config, log *zap.Logger) *AutoTagHandler {
+func newAutoTagHandler(db *database.DB, cfg *config.Config, log *zap.Logger, tasks *taskqueue.Manager) *AutoTagHandler {
 	svc := autotag.NewService(db, autotag.Config{
 		SauceNAOAPIKey: cfg.SauceNAOAPIKey,
 		IQDBEnabled:    cfg.IQDBEnabled,
 		Threshold:      float64(cfg.AutoTagSimilarityThreshold),
 		RateLimitMs:    cfg.AutoTagRateLimitMs,
 	}, log)
-	return &AutoTagHandler{db: db, service: svc}
+	return &AutoTagHandler{db: db, service: svc, tasks: tasks}
 }
 
 // AutoTag handles POST /api/media/:id/autotag
@@ -34,8 +36,8 @@ func (h *AutoTagHandler) AutoTag(c *gin.Context) {
 	id := c.Param("id")
 
 	var body struct {
-		Force       bool             `json:"force"`
-		ApplyTags   []autotag.SuggestedTag `json:"apply_tags"`
+		Force     bool                   `json:"force"`
+		ApplyTags []autotag.SuggestedTag `json:"apply_tags"`
 	}
 	_ = c.ShouldBindJSON(&body) // optional body
 
@@ -118,33 +120,60 @@ func (h *AutoTagHandler) AutoTagBatch(c *gin.Context) {
 		return
 	}
 
-	// Mark all selected items as 'processing' (lightweight queue via DB status)
-	for _, id := range ids {
-		if _, err := h.db.ExecContext(ctx,
-			`UPDATE media SET auto_tag_status = 'processing', updated_at = NOW() WHERE id = $1`, id,
-		); err != nil {
-			zap.L().Warn("autotag batch: mark processing", zap.String("id", id), zap.Error(err))
-		}
-	}
+	task := h.tasks.Start("media.autotag_batch", c.GetString("userID"), map[string]any{
+		"queued":       len(ids),
+		"all_untagged": body.AllUntagged,
+	}, func(ctx context.Context, handle *taskqueue.Handle) (any, error) {
+		total := len(ids)
+		successCount := 0
+		failedCount := 0
+		handle.SetProgress(0, total)
 
-	// Process in a goroutine so the response returns quickly
-	go func() {
-		bgCtx := context.Background()
-		for _, id := range ids {
+		for index, id := range ids {
+			handle.SetMessage("Auto-tagging item %d of %d", index+1, total)
+			if err := h.service.MarkProcessing(ctx, id); err != nil {
+				failedCount++
+				handle.Increment(total)
+				continue
+			}
+
 			var item models.Media
-			if err := h.db.QueryRowx(
-				`SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id,
+			if err := h.db.QueryRowxContext(
+				ctx,
+				`SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`,
+				id,
 			).StructScan(&item); err != nil {
+				failedCount++
+				_ = h.service.MarkFailed(ctx, id)
+				handle.Increment(total)
 				continue
 			}
-			result, err := h.service.AutoTag(bgCtx, &item)
-			if err != nil || result == nil || result.Source == "none" {
-				_ = h.service.MarkFailed(bgCtx, id)
-				continue
-			}
-			_ = h.service.ApplyTags(bgCtx, id, result, result.SuggestedTags)
-		}
-	}()
 
-	respondOK(c, gin.H{"queued": len(ids)}, nil)
+			result, err := h.service.AutoTag(ctx, &item)
+			if err != nil || result == nil || result.Source == "none" {
+				failedCount++
+				_ = h.service.MarkFailed(ctx, id)
+				handle.Increment(total)
+				continue
+			}
+			if err := h.service.ApplyTags(ctx, id, result, result.SuggestedTags); err != nil {
+				failedCount++
+				_ = h.service.MarkFailed(ctx, id)
+				handle.Increment(total)
+				continue
+			}
+
+			successCount++
+			handle.Increment(total)
+		}
+
+		handle.SetMessage("Batch auto-tag completed")
+		return gin.H{
+			"queued":    total,
+			"completed": successCount,
+			"failed":    failedCount,
+		}, nil
+	})
+
+	respondAccepted(c, gin.H{"queued": len(ids), "task_id": task.ID}, nil)
 }

@@ -23,6 +23,7 @@ export interface Media {
   // Perceptual hash (v0.5)
   phash?: number | null
   tags?: Tag[]
+  collections?: CollectionRef[]
   created_at: string
   updated_at: string
 }
@@ -50,6 +51,11 @@ export interface Tag {
   usage_count: number
 }
 
+export interface CollectionRef {
+  id: string
+  name: string
+}
+
 export interface PageInfo {
   index: number
   filename: string
@@ -66,6 +72,7 @@ export interface MediaListParams {
   type?: string
   q?: string
   favorite?: boolean
+  in_progress?: boolean
   tag?: string
   tags?: string
   sort?: string
@@ -115,12 +122,8 @@ export const mediaApi = {
     client.get<ApiResponse<SearchSuggestion[]>>('/media/suggestions', { params: { q } }).then((r) => r.data),
 }
 
-function withToken(pathname: string, version?: string): string {
+function withVersion(pathname: string, version?: string): string {
   const url = new URL(pathname, window.location.origin)
-  const token = localStorage.getItem('tanuki_token')
-  if (token) {
-    url.searchParams.set('token', token)
-  }
   if (version) {
     url.searchParams.set('v', version)
   }
@@ -128,9 +131,9 @@ function withToken(pathname: string, version?: string): string {
 }
 
 export function mediaAssetUrl(id: string, kind: 'file' | 'thumbnail', version?: string): string {
-  return withToken(`/api/media/${id}/${kind}`, version)
+  return withVersion(`/api/media/${id}/${kind}`, version)
 }
 
 export function mediaPageUrl(id: string, page: number): string {
-  return withToken(`/api/media/${id}/pages/${page}`)
+  return withVersion(`/api/media/${id}/pages/${page}`)
 }

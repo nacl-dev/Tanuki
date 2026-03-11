@@ -3,12 +3,15 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/auth"
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/plugins"
+	"github.com/nacl-dev/tanuki/internal/taskqueue"
 	"go.uber.org/zap"
 )
 
@@ -18,6 +21,15 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
+	r.Use(func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = uuid.NewString()
+		}
+		c.Set("requestID", requestID)
+		c.Header("X-Request-ID", requestID)
+		c.Next()
+	})
 
 	// ─── CORS (development convenience) ──────────────────────────────────────
 	r.Use(func(c *gin.Context) {
@@ -41,12 +53,14 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 
 	// ─── Auth routes (public) ─────────────────────────────────────────────────
 	apiGroup := r.Group("/api")
+	taskManager := taskqueue.New(log)
 	{
 		authH := &AuthHandler{db: db, cfg: cfg}
 		authRoutes := apiGroup.Group("/auth")
 		{
 			authRoutes.POST("/register", authH.Register)
 			authRoutes.POST("/login", authH.Login)
+			authRoutes.POST("/logout", authH.Logout)
 			authRoutes.GET("/me", auth.AuthRequired(cfg.JWTSecret), authH.Me)
 			authRoutes.PATCH("/me", auth.AuthRequired(cfg.JWTSecret), authH.UpdateMe)
 		}
@@ -73,7 +87,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				media.GET("/:id/collections", ch.ListForMedia)
 
 				// Auto-tagging (v0.4)
-				ah := newAutoTagHandler(db, cfg, log)
+				ah := newAutoTagHandler(db, cfg, log, taskManager)
 				media.POST("/:id/autotag", ah.AutoTag)
 				media.POST("/autotag/batch", ah.AutoTagBatch)
 
@@ -106,7 +120,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			}
 
 			// Downloads
-			dldh := &DownloadHandler{db: db}
+			dldh := &DownloadHandler{db: db, downloadsDir: cfg.DownloadsPath, mediaPath: cfg.MediaPath}
 			downloads := protected.Group("/downloads")
 			{
 				downloads.GET("", dldh.List)
@@ -118,7 +132,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			}
 
 			// Schedules
-			sh := &ScheduleHandler{db: db}
+			sh := &ScheduleHandler{db: db, downloadsDir: cfg.DownloadsPath, mediaPath: cfg.MediaPath}
 			schedules := protected.Group("/schedules")
 			{
 				schedules.GET("", sh.List)
@@ -134,9 +148,14 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				thumbPath: cfg.ThumbnailsPath,
 				inboxPath: cfg.InboxPath,
 				log:       log,
+				tasks:     taskManager,
 			}
 			protected.POST("/library/scan", lh.Scan)
 			protected.POST("/library/organize", lh.Organize)
+
+			taskH := newTaskHandler(taskManager)
+			protected.GET("/tasks", taskH.List)
+			protected.GET("/tasks/:id", taskH.Get)
 
 			// Duplicates (v0.5)
 			ddh := newDedupHandler(db, cfg.DuplicateThreshold, log)
@@ -149,7 +168,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			// Plugins (v1.0)
 			if pluginRegistry != nil {
 				ph := newPluginHandler(pluginRegistry)
-				pluginsGroup := protected.Group("/plugins")
+				pluginsGroup := protected.Group("/plugins", auth.AdminRequired())
 				{
 					pluginsGroup.GET("", ph.List)
 					pluginsGroup.POST("/scan", ph.Scan)
@@ -164,11 +183,44 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				_ = db.Get(&mediaCount, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL`)
 				var pluginCount int
 				_ = db.Get(&pluginCount, `SELECT COUNT(*) FROM plugins`)
-				c.JSON(http.StatusOK, gin.H{
-					"version":      "1.0.0",
-					"media_count":  mediaCount,
-					"plugin_count": pluginCount,
-				})
+				var downloadsTotal int
+				_ = db.Get(&downloadsTotal, `SELECT COUNT(*) FROM download_jobs`)
+				var downloadsActive int
+				_ = db.Get(&downloadsActive, `SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'downloading', 'processing', 'paused')`)
+				var downloadsFailed int
+				_ = db.Get(&downloadsFailed, `SELECT COUNT(*) FROM download_jobs WHERE status = 'failed'`)
+				var schedulesTotal int
+				_ = db.Get(&schedulesTotal, `SELECT COUNT(*) FROM download_schedules`)
+				var schedulesEnabled int
+				_ = db.Get(&schedulesEnabled, `SELECT COUNT(*) FROM download_schedules WHERE enabled = TRUE`)
+				var autoTagPending int
+				_ = db.Get(&autoTagPending, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL AND auto_tag_status IN ('pending', 'processing')`)
+				var lastCompletedDownload *time.Time
+				_ = db.Get(&lastCompletedDownload, `SELECT completed_at FROM download_jobs WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1`)
+				taskSummary := taskManager.Summary()
+				respondOK(c, gin.H{
+					"version":                  "1.0.0",
+					"media_count":              mediaCount,
+					"plugin_count":             pluginCount,
+					"downloads_total":          downloadsTotal,
+					"downloads_active":         downloadsActive,
+					"downloads_failed":         downloadsFailed,
+					"schedules_total":          schedulesTotal,
+					"schedules_enabled":        schedulesEnabled,
+					"autotag_pending":          autoTagPending,
+					"background_tasks_active":  taskSummary.Active,
+					"background_tasks_failed":  taskSummary.Failed,
+					"last_completed_download":  lastCompletedDownload,
+					"media_path":               cfg.MediaPath,
+					"downloads_path":           cfg.DownloadsPath,
+					"thumbnails_path":          cfg.ThumbnailsPath,
+					"inbox_path":               cfg.InboxPath,
+					"scan_interval":            cfg.ScanInterval,
+					"max_concurrent_downloads": cfg.MaxConcurrentDownloads,
+					"rate_limit_delay":         cfg.RateLimitDelay,
+					"plugins_enabled":          cfg.PluginsEnabled,
+					"registration_enabled":     cfg.RegistrationEnabled,
+				}, nil)
 			})
 		}
 

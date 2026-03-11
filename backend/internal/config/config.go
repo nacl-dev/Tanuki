@@ -66,7 +66,7 @@ func Load() (*Config, error) {
 		RedisURL:               getEnv("REDIS_URL", "redis://localhost:6379"),
 		MediaPath:              getEnv("MEDIA_PATH", "/media"),
 		ThumbnailsPath:         getEnv("THUMBNAILS_PATH", "/thumbnails"),
-		DownloadsPath:          getEnv("DOWNLOADS_PATH", "/downloads"),
+		DownloadsPath:          getEnv("DOWNLOADS_PATH", "/media"),
 		InboxPath:              getEnv("INBOX_PATH", "/inbox"),
 		SecretKey:              getEnv("SECRET_KEY", "change-me"),
 		Port:                   getEnv("PORT", "8080"),

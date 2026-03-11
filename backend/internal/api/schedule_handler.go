@@ -6,12 +6,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/downloader"
 	"github.com/nacl-dev/tanuki/internal/models"
 )
 
 // ScheduleHandler manages recurring download schedules.
 type ScheduleHandler struct {
-	db *database.DB
+	db           *database.DB
+	downloadsDir string
+	mediaPath    string
 }
 
 // List returns all download schedules.
@@ -46,13 +49,18 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	targetDirectory, err := downloader.NormalizeTargetDirectory(body.TargetDirectory, h.downloadsDir, h.mediaPath)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	id := uuid.NewString()
 	if _, err := h.db.Exec(`
 		INSERT INTO download_schedules
 			(id, user_id, name, url_pattern, source_type, cron_expression, enabled, target_directory)
 		VALUES ($1, $2, $3, $4, $5, $6, true, $7)
-	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, body.CronExpression, body.TargetDirectory); err != nil {
+	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, body.CronExpression, targetDirectory); err != nil {
 		respondError(c, http.StatusInternalServerError, "create schedule: "+err.Error())
 		return
 	}
@@ -76,13 +84,23 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 	userID := c.GetString("userID")
 
 	var body struct {
-		Name           *string `json:"name"`
-		CronExpression *string `json:"cron_expression"`
-		Enabled        *bool   `json:"enabled"`
+		Name            *string `json:"name"`
+		CronExpression  *string `json:"cron_expression"`
+		Enabled         *bool   `json:"enabled"`
+		TargetDirectory *string `json:"target_directory"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
+	}
+	var targetDirectory any
+	if body.TargetDirectory != nil {
+		normalizedTargetDirectory, err := downloader.NormalizeTargetDirectory(*body.TargetDirectory, h.downloadsDir, h.mediaPath)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		targetDirectory = normalizedTargetDirectory
 	}
 
 	if _, err := h.db.Exec(`
@@ -90,9 +108,10 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 			name            = COALESCE($2, name),
 			cron_expression = COALESCE($3, cron_expression),
 			enabled         = COALESCE($4, enabled),
+			target_directory = COALESCE($5, target_directory),
 			updated_at      = NOW()
-		WHERE id = $1 AND (user_id = $5 OR user_id IS NULL)
-	`, id, body.Name, body.CronExpression, body.Enabled, userID); err != nil {
+		WHERE id = $1 AND (user_id = $6 OR user_id IS NULL)
+	`, id, body.Name, body.CronExpression, body.Enabled, targetDirectory, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "update schedule: "+err.Error())
 		return
 	}

@@ -125,7 +125,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	setAuthCookie(c, token, h.cfg.JWTExpiryHours)
 	respondOK(c, loginResponse{Token: token, User: &user}, nil)
+}
+
+// Logout clears the auth cookie so browser-based asset requests stop working
+// immediately after sign-out.
+// POST /api/auth/logout
+func (h *AuthHandler) Logout(c *gin.Context) {
+	clearAuthCookie(c)
+	respondOK(c, gin.H{"logged_out": true}, nil)
 }
 
 // Me returns the currently authenticated user.

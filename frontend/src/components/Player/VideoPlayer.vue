@@ -4,6 +4,7 @@
     class="vp-container"
     :class="{ 'vp-fullscreen': isFullscreen, 'vp-controls-hidden': controlsHidden }"
     tabindex="0"
+    aria-label="Video player"
     @mousemove="onActivity"
     @mouseenter="onActivity"
     @keydown="onKey"
@@ -44,11 +45,11 @@
       <div class="vp-bar">
         <!-- Left group -->
         <div class="vp-bar-left">
-          <button class="vp-btn" @click="togglePlay" :title="playing ? 'Pause (Space)' : 'Play (Space)'">
+          <button type="button" class="vp-btn" :aria-label="playing ? 'Pause video' : 'Play video'" @click="togglePlay" :title="playing ? 'Pause (Space)' : 'Play (Space)'">
             {{ playing ? '⏸' : '▶' }}
           </button>
           <div class="vp-volume">
-            <button class="vp-btn" @click="toggleMute" :title="muted ? 'Unmute (M)' : 'Mute (M)'">
+            <button type="button" class="vp-btn" :aria-label="muted ? 'Unmute video' : 'Mute video'" @click="toggleMute" :title="muted ? 'Unmute (M)' : 'Mute (M)'">
               {{ muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊' }}
             </button>
             <input
@@ -67,7 +68,7 @@
           <select class="vp-speed" :value="playbackRate" @change="onSpeedChange" title="Playback speed">
             <option v-for="s in speeds" :key="s" :value="s">{{ s }}x</option>
           </select>
-          <button class="vp-btn" @click="toggleFullscreen" :title="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
+          <button type="button" class="vp-btn" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'" @click="toggleFullscreen" :title="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'">
             {{ isFullscreen ? '⊠' : '⛶' }}
           </button>
         </div>
@@ -369,6 +370,11 @@ onUnmounted(() => {
   border-radius: var(--radius-lg, 8px);
 }
 
+.vp-container:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .vp-fullscreen {
   border-radius: 0;
 }
@@ -479,6 +485,14 @@ onUnmounted(() => {
 }
 
 .vp-btn:hover { color: #f59e0b; }
+
+.vp-btn:focus-visible,
+.vp-slider:focus-visible,
+.vp-speed:focus-visible,
+.vp-progress:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 
 .vp-volume {
   display: flex;

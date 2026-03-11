@@ -2,7 +2,7 @@
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-logo">
-        <span class="logo-icon">🦝</span>
+        <span class="logo-icon" aria-hidden="true"><AppIcon name="library" :size="20" /></span>
         <span class="logo-text">Tanuki</span>
       </div>
 
@@ -78,6 +78,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 import { useAuthStore } from '@/stores/authStore'
 
 const router = useRouter()
@@ -135,7 +136,19 @@ async function onSubmit() {
   margin-bottom: 24px;
 }
 
-.logo-icon { font-size: 30px; }
+.logo-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
 .logo-text  { color: var(--accent); }
 
 .auth-title {
@@ -167,7 +180,10 @@ async function onSubmit() {
   transition: border-color 0.15s;
 }
 
-.form-input:focus { border-color: var(--accent); }
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
 
 .auth-error {
   padding: 10px 12px;

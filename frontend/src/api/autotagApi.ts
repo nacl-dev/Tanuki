@@ -38,7 +38,7 @@ export const autotagApi = {
    */
   autotagBatch: (ids: string[] | 'all_untagged') =>
     client
-      .post<ApiResponse<{ queued: number }>>('/media/autotag/batch', {
+      .post<ApiResponse<{ queued: number; task_id: string }>>('/media/autotag/batch', {
         ...(ids === 'all_untagged' ? { all_untagged: true } : { ids }),
       })
       .then((r) => r.data),

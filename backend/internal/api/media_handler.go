@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/remotehttp"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -41,15 +42,16 @@ type MediaHandler struct {
 // GET /api/media?page=1&limit=50&type=video&q=search&favorite=true&tag=artist&tags=a,b&sort=newest&min_rating=3
 func (h *MediaHandler) List(c *gin.Context) {
 	type query struct {
-		Page      int    `form:"page"       binding:"-"`
-		Limit     int    `form:"limit"      binding:"-"`
-		Type      string `form:"type"       binding:"-"`
-		Q         string `form:"q"          binding:"-"`
-		Favorite  *bool  `form:"favorite"   binding:"-"`
-		Tag       string `form:"tag"        binding:"-"`
-		Tags      string `form:"tags"       binding:"-"`
-		Sort      string `form:"sort"       binding:"-"`
-		MinRating *int   `form:"min_rating" binding:"-"`
+		Page       int    `form:"page"       binding:"-"`
+		Limit      int    `form:"limit"      binding:"-"`
+		Type       string `form:"type"       binding:"-"`
+		Q          string `form:"q"          binding:"-"`
+		Favorite   *bool  `form:"favorite"   binding:"-"`
+		InProgress *bool  `form:"in_progress" binding:"-"`
+		Tag        string `form:"tag"        binding:"-"`
+		Tags       string `form:"tags"       binding:"-"`
+		Sort       string `form:"sort"       binding:"-"`
+		MinRating  *int   `form:"min_rating" binding:"-"`
 	}
 
 	var q query
@@ -95,6 +97,13 @@ func (h *MediaHandler) List(c *gin.Context) {
 		whereClause += ` AND m.favorite = $` + itoa(argIdx)
 		args = append(args, *q.Favorite)
 		argIdx++
+	}
+	if q.InProgress != nil {
+		if *q.InProgress {
+			whereClause += ` AND m.read_progress > 0`
+		} else {
+			whereClause += ` AND COALESCE(m.read_progress, 0) = 0`
+		}
 	}
 	if q.MinRating != nil {
 		whereClause += ` AND m.rating >= $` + itoa(argIdx)
@@ -162,6 +171,11 @@ func (h *MediaHandler) List(c *gin.Context) {
 		return
 	}
 
+	if err := h.populateMediaRelations(items); err != nil {
+		respondError(c, http.StatusInternalServerError, "load media relations: "+err.Error())
+		return
+	}
+
 	respondOK(c, items, &Meta{Page: q.Page, Total: total})
 }
 
@@ -221,28 +235,7 @@ func (h *MediaHandler) Suggestions(c *gin.Context) {
 // Get returns a single media item by its UUID.
 // GET /api/media/:id
 func (h *MediaHandler) Get(c *gin.Context) {
-	id := c.Param("id")
-
-	var item models.Media
-	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
-		respondError(c, http.StatusNotFound, "media not found")
-		return
-	}
-
-	// Increment view count asynchronously; errors are non-fatal.
-	h.db.Exec(`UPDATE media SET view_count = view_count + 1 WHERE id = $1`, id) //nolint:errcheck
-
-	// Load associated tags.
-	if err := h.db.Select(&item.Tags, `
-		SELECT t.* FROM tags t
-		JOIN media_tags mt ON mt.tag_id = t.id
-		WHERE mt.media_id = $1
-	`, id); err != nil {
-		respondError(c, http.StatusInternalServerError, "load tags: "+err.Error())
-		return
-	}
-
-	respondOK(c, item, nil)
+	h.respondMedia(c, c.Param("id"), true)
 }
 
 // Update patches mutable fields of a media item.
@@ -305,7 +298,7 @@ func (h *MediaHandler) Update(c *gin.Context) {
 		}
 	}
 
-	h.Get(c) // Return the updated record.
+	h.respondMedia(c, id, false)
 }
 
 // Delete soft-deletes a media item.
@@ -447,7 +440,7 @@ func (h *MediaHandler) UploadThumbnail(c *gin.Context) {
 		return
 	}
 
-	h.Get(c)
+	h.respondMedia(c, id, false)
 }
 
 // FetchThumbnail downloads a remote image and stores it as the custom thumbnail.
@@ -473,6 +466,10 @@ func (h *MediaHandler) FetchThumbnail(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "url is required")
 		return
 	}
+	if err := remotehttp.ValidateURL(body.URL); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid url: "+err.Error())
+		return
+	}
 
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, body.URL, nil)
 	if err != nil {
@@ -480,7 +477,7 @@ func (h *MediaHandler) FetchThumbnail(c *gin.Context) {
 		return
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := remotehttp.NewClient(15 * time.Second).Do(req)
 	if err != nil {
 		respondError(c, http.StatusBadGateway, "download thumbnail: "+err.Error())
 		return
@@ -503,7 +500,7 @@ func (h *MediaHandler) FetchThumbnail(c *gin.Context) {
 		return
 	}
 
-	h.Get(c)
+	h.respondMedia(c, id, false)
 }
 
 // splitTags splits a comma-separated tag string into individual tag names,
@@ -554,19 +551,17 @@ func listZipImages(path string) ([]string, error) {
 	return names, nil
 }
 
-// listCBRImages lists image filenames inside a CBR/RAR archive using unrar.
+// listRARImages lists image filenames inside a CBR/RAR archive using bsdtar.
 // The file path comes from the database and is not user-controlled.
-// exec.Command passes arguments directly to execve (no shell), so shell
-// metacharacters in the path are not interpreted.
-func listCBRImages(path string) ([]string, error) {
-	out, err := exec.Command("unrar", "lb", "--", path).Output()
+func listRARImages(path string) ([]string, error) {
+	out, err := exec.Command("bsdtar", "-tf", path).Output()
 	if err != nil {
-		return nil, fmt.Errorf("unrar lb: %w", err)
+		return nil, fmt.Errorf("bsdtar -tf: %w", err)
 	}
 	var names []string
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && isImageFile(line) && !strings.HasPrefix(line, "-") {
+		if line != "" && isImageFile(line) {
 			names = append(names, line)
 		}
 	}
@@ -592,8 +587,8 @@ func (h *MediaHandler) ListPages(c *gin.Context) {
 	switch ext {
 	case ".zip", ".cbz":
 		names, err = listZipImages(item.FilePath)
-	case ".cbr":
-		names, err = listCBRImages(item.FilePath)
+	case ".cbr", ".rar":
+		names, err = listRARImages(item.FilePath)
 	default:
 		respondError(c, http.StatusBadRequest, "media is not an archive type")
 		return
@@ -641,8 +636,8 @@ func (h *MediaHandler) ServePage(c *gin.Context) {
 		if err := serveZipPage(c, item.FilePath, pageIdx); err != nil {
 			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
 		}
-	case ".cbr":
-		if err := serveCBRPage(c, item.FilePath, pageIdx); err != nil {
+	case ".cbr", ".rar":
+		if err := serveRARPage(c, item.FilePath, pageIdx); err != nil {
 			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
 		}
 	default:
@@ -688,9 +683,9 @@ func serveZipPage(c *gin.Context, path string, pageIdx int) error {
 	return err
 }
 
-// serveCBRPage extracts and streams a single page from a CBR/RAR archive using unrar.
-func serveCBRPage(c *gin.Context, path string, pageIdx int) error {
-	names, err := listCBRImages(path)
+// serveRARPage extracts and streams a single page from a CBR/RAR archive using bsdtar.
+func serveRARPage(c *gin.Context, path string, pageIdx int) error {
+	names, err := listRARImages(path)
 	if err != nil {
 		return err
 	}
@@ -700,12 +695,10 @@ func serveCBRPage(c *gin.Context, path string, pageIdx int) error {
 	}
 
 	target := names[pageIdx]
-	// Pass "--" before filename arguments so unrar cannot misinterpret
-	// archive-embedded filenames as command-line flags.
-	cmd := exec.Command("unrar", "p", "-inul", "--", path, target)
+	cmd := exec.Command("bsdtar", "-xOf", path, target)
 	out, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("unrar p: %w", err)
+		return fmt.Errorf("bsdtar -xOf: %w", err)
 	}
 
 	ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(target)))
@@ -792,6 +785,36 @@ func removeIfExists(path string) error {
 	return nil
 }
 
+func (h *MediaHandler) respondMedia(c *gin.Context, id string, incrementView bool) {
+	item, err := h.findMediaByID(id, incrementView)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondError(c, http.StatusNotFound, "media not found")
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "load media: "+err.Error())
+		return
+	}
+	respondOK(c, item, nil)
+}
+
+func (h *MediaHandler) findMediaByID(id string, incrementView bool) (models.Media, error) {
+	var item models.Media
+	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
+		return models.Media{}, err
+	}
+	if incrementView {
+		if _, err := h.db.Exec(`UPDATE media SET view_count = view_count + 1 WHERE id = $1`, id); err == nil {
+			item.ViewCount++
+		}
+	}
+	items := []models.Media{item}
+	if err := h.populateMediaRelations(items); err != nil {
+		return models.Media{}, err
+	}
+	return items[0], nil
+}
+
 func (h *MediaHandler) loadMediaForThumbnail(c *gin.Context, id string) (models.Media, bool) {
 	var item models.Media
 	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
@@ -876,5 +899,68 @@ func saveResizedThumbnail(img image.Image, path string) error {
 	if err := jpeg.Encode(out, dst, &jpeg.Options{Quality: 88}); err != nil {
 		return fmt.Errorf("encode thumbnail: %w", err)
 	}
+	return nil
+}
+
+func (h *MediaHandler) populateMediaRelations(items []models.Media) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	indexByID := make(map[string]*models.Media, len(items))
+	ids := make([]interface{}, 0, len(items))
+	placeholders := make([]string, 0, len(items))
+	for i := range items {
+		indexByID[items[i].ID] = &items[i]
+		ids = append(ids, items[i].ID)
+		placeholders = append(placeholders, "$"+itoa(i+1))
+	}
+
+	type mediaTagRow struct {
+		MediaID string `db:"media_id"`
+		models.Tag
+	}
+	var tagRows []mediaTagRow
+	tagQuery := `
+		SELECT mt.media_id, t.*
+		FROM media_tags mt
+		JOIN tags t ON t.id = mt.tag_id
+		WHERE mt.media_id IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY t.name ASC
+	`
+	if err := h.db.Select(&tagRows, tagQuery, ids...); err != nil {
+		return err
+	}
+	for _, row := range tagRows {
+		if item := indexByID[row.MediaID]; item != nil {
+			item.Tags = append(item.Tags, row.Tag)
+		}
+	}
+
+	type mediaCollectionRow struct {
+		MediaID string `db:"media_id"`
+		ID      string `db:"id"`
+		Name    string `db:"name"`
+	}
+	var collectionRows []mediaCollectionRow
+	collectionQuery := `
+		SELECT mc.media_id, c.id, c.name
+		FROM media_collections mc
+		JOIN collections c ON c.id = mc.collection_id
+		WHERE mc.media_id IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY c.name ASC
+	`
+	if err := h.db.Select(&collectionRows, collectionQuery, ids...); err != nil {
+		return err
+	}
+	for _, row := range collectionRows {
+		if item := indexByID[row.MediaID]; item != nil {
+			item.Collections = append(item.Collections, models.CollectionRef{
+				ID:   row.ID,
+				Name: row.Name,
+			})
+		}
+	}
+
 	return nil
 }

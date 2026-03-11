@@ -1,0 +1,42 @@
+package downloader
+
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestNormalizeTargetDirectoryAllowsConfiguredRoots(t *testing.T) {
+	downloadsRoot := t.TempDir()
+	mediaRoot := t.TempDir()
+	target := filepath.Join(mediaRoot, "library")
+
+	result, err := NormalizeTargetDirectory(target, downloadsRoot, mediaRoot)
+	if err != nil {
+		t.Fatalf("expected path to be allowed, got error: %v", err)
+	}
+	if result != target {
+		t.Fatalf("unexpected normalized path: %s", result)
+	}
+}
+
+func TestNormalizeTargetDirectoryRejectsTraversalOutsideRoots(t *testing.T) {
+	downloadsRoot := t.TempDir()
+	mediaRoot := t.TempDir()
+	outside := t.TempDir()
+
+	_, err := NormalizeTargetDirectory(outside, downloadsRoot, mediaRoot)
+	if err == nil {
+		t.Fatal("expected outside path to be rejected")
+	}
+}
+
+func TestResolveTargetDirectoryFallsBackToDownloads(t *testing.T) {
+	downloadsRoot := t.TempDir()
+	mediaRoot := t.TempDir()
+	outside := t.TempDir()
+
+	result := ResolveTargetDirectory(outside, downloadsRoot, mediaRoot)
+	if result != downloadsRoot {
+		t.Fatalf("expected fallback to downloads root, got %s", result)
+	}
+}

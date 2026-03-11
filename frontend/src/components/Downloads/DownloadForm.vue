@@ -23,17 +23,17 @@
     </div>
 
     <div class="form-row">
-      <button class="btn btn-primary" :disabled="!url || loading" @click="submit">
-        {{ loading ? 'Adding…' : '⬇️ Download' }}
+      <button type="button" class="btn btn-primary" :disabled="!url || loading" @click="submit">
+        {{ loading ? 'Adding…' : 'Add Download' }}
       </button>
-      <button class="btn btn-ghost" @click="openBatch">Batch</button>
+      <button type="button" class="btn btn-ghost" @click="openBatch">Batch</button>
     </div>
 
     <!-- Batch input -->
     <div v-if="batchMode" class="form-field">
       <label>URLs (one per line)</label>
       <textarea v-model="batchUrls" rows="5" class="input" placeholder="https://…"></textarea>
-      <button class="btn btn-primary" @click="submitBatch">Add all</button>
+      <button type="button" class="btn btn-primary" @click="submitBatch">Add all</button>
     </div>
   </div>
 </template>
@@ -91,7 +91,10 @@ async function submitBatch() {
   outline: none;
   width: 100%;
 }
-.input:focus { border-color: var(--accent); }
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
 
 textarea.input { resize: vertical; font-family: inherit; }
 </style>

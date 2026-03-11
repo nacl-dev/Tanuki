@@ -1,22 +1,32 @@
 <template>
   <div ref="root" class="search-shell">
     <div class="search-bar">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon" aria-hidden="true">
+        <AppIcon name="search" :size="16" />
+      </span>
       <button
         v-for="tag in activeTags"
         :key="tag"
         class="active-tag-chip"
         type="button"
+        :aria-label="`Remove tag ${tag}`"
         @click="removeTag(tag)"
       >
         #{{ tag }}
-        <span class="active-tag-chip__close">✕</span>
+        <span class="active-tag-chip__close" aria-hidden="true">
+          <AppIcon name="close" :size="10" />
+        </span>
       </button>
       <input
         v-model="query"
         id="global-search"
         name="global-search"
         type="text"
+        role="combobox"
+        aria-autocomplete="list"
+        :aria-expanded="showSuggestions && suggestions.length > 0"
+        aria-controls="global-search-suggestions"
+        :aria-activedescendant="activeIndex >= 0 ? suggestionId(activeIndex) : undefined"
         placeholder="Search by title or tag…"
         class="search-input"
         autocomplete="off"
@@ -27,14 +37,24 @@
         @keydown.up.prevent="moveSelection(-1)"
         @keydown.esc="showSuggestions = false"
       />
-      <button v-if="query || activeTags.length" class="clear-btn" @click="clearAll">✕</button>
+      <button v-if="query || activeTags.length" type="button" class="clear-btn" aria-label="Clear search" @click="clearAll">
+        <AppIcon name="close" :size="12" />
+      </button>
     </div>
 
-    <div v-if="showSuggestions && suggestions.length" class="search-suggestions">
+    <div
+      v-if="showSuggestions && suggestions.length"
+      id="global-search-suggestions"
+      class="search-suggestions"
+      role="listbox"
+    >
       <button
         v-for="(suggestion, index) in suggestions"
         :key="`${suggestion.type}-${suggestion.value}`"
         type="button"
+        :id="suggestionId(index)"
+        role="option"
+        :aria-selected="index === activeIndex"
         :class="['suggestion-item', { 'suggestion-item--active': index === activeIndex }]"
         @mousedown.prevent="applySuggestion(suggestion)"
       >
@@ -49,6 +69,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { useRouter } from 'vue-router'
+import AppIcon from '@/components/Layout/AppIcon.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 import { tagApi } from '@/api/tagApi'
 import { mediaApi, type SearchSuggestion } from '@/api/mediaApi'
@@ -154,6 +175,10 @@ function applySuggestion(suggestion: SearchSuggestion) {
   showSuggestions.value = false
 }
 
+function suggestionId(index: number) {
+  return `global-search-suggestion-${index}`
+}
+
 function addTag(tag: string) {
   const next = [...activeTags.value, tag].filter((item, index, arr) => arr.indexOf(item) === index)
   mediaStore.filters.tag = ''
@@ -210,7 +235,15 @@ onUnmounted(() => {
   padding: 6px 12px;
 }
 
-.search-icon { color: var(--text-muted); }
+.search-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
+.search-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
 
 .active-tag-chip {
   display: inline-flex;
@@ -226,8 +259,15 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.active-tag-chip:focus-visible,
+.clear-btn:focus-visible,
+.suggestion-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .active-tag-chip__close {
-  font-size: 10px;
+  display: inline-flex;
 }
 
 .search-input {
@@ -246,7 +286,10 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
 }
 .clear-btn:hover { color: var(--text-primary); }
 

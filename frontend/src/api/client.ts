@@ -25,8 +25,10 @@ client.interceptors.response.use(
         window.location.href = '/login'
       }
     }
+    const requestId = err.response?.data?.request_id
     const msg = err.response?.data?.error ?? err.message
-    return Promise.reject(new Error(msg))
+    const detail = requestId ? `${msg} (Request ID: ${requestId})` : msg
+    return Promise.reject(new Error(detail))
   },
 )
 

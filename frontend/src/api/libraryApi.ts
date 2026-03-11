@@ -21,10 +21,10 @@ export interface OrganizePreviewItem {
 
 export const libraryApi = {
   scan: () =>
-    client.post<ApiResponse<{ message: string }>>('/library/scan').then((r) => r.data),
+    client.post<ApiResponse<{ message: string; task_id: string }>>('/library/scan').then((r) => r.data),
 
   organize: (sourcePath: string, mode: 'move' | 'copy' = 'move', preview = false) =>
-    client.post<ApiResponse<OrganizeLibraryResult>>('/library/organize', {
+    client.post<ApiResponse<OrganizeLibraryResult | { message: string; task_id: string }>>('/library/organize', {
       source_path: sourcePath,
       mode,
       preview,

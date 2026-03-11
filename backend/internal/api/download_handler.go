@@ -6,12 +6,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/downloader"
 	"github.com/nacl-dev/tanuki/internal/models"
 )
 
 // DownloadHandler manages download job CRUD.
 type DownloadHandler struct {
-	db *database.DB
+	db           *database.DB
+	downloadsDir string
+	mediaPath    string
 }
 
 // List returns all download jobs, optionally filtered by status.
@@ -57,13 +60,18 @@ func (h *DownloadHandler) Create(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	targetDirectory, err := downloader.NormalizeTargetDirectory(body.TargetDirectory, h.downloadsDir, h.mediaPath)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	job := models.DownloadJob{
 		ID:              uuid.NewString(),
 		UserID:          stringPtr(c.GetString("userID")),
 		URL:             body.URL,
 		Status:          models.DownloadStatusQueued,
-		TargetDirectory: body.TargetDirectory,
+		TargetDirectory: targetDirectory,
 	}
 
 	if _, err := h.db.Exec(`
@@ -92,6 +100,11 @@ func (h *DownloadHandler) Batch(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	targetDirectory, err := downloader.NormalizeTargetDirectory(body.TargetDirectory, h.downloadsDir, h.mediaPath)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	created := make([]string, 0, len(body.URLs))
 	for _, rawURL := range body.URLs {
@@ -100,7 +113,7 @@ func (h *DownloadHandler) Batch(c *gin.Context) {
 			INSERT INTO download_jobs
 				(id, user_id, url, source_type, status, progress, target_directory, retry_count)
 			VALUES ($1, $2, $3, 'auto', 'queued', 0, $4, 0)
-		`, id, userID, rawURL, body.TargetDirectory); err == nil {
+		`, id, userID, rawURL, targetDirectory); err == nil {
 			created = append(created, id)
 		}
 	}
@@ -134,8 +147,8 @@ func (h *DownloadHandler) Update(c *gin.Context) {
 	userID := c.GetString("userID")
 
 	var body struct {
-		Action          string `json:"action"           binding:"-"` // pause|resume|cancel|retry
-		TargetDirectory string `json:"target_directory" binding:"-"`
+		Action          string  `json:"action"           binding:"-"` // pause|resume|cancel|retry
+		TargetDirectory *string `json:"target_directory" binding:"-"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
@@ -151,6 +164,14 @@ func (h *DownloadHandler) Update(c *gin.Context) {
 		h.db.Exec(`UPDATE download_jobs SET status = 'failed',  updated_at = NOW(), error_message = 'cancelled by user' WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
 	case "retry":
 		h.db.Exec(`UPDATE download_jobs SET status = 'queued',  updated_at = NOW(), error_message = '', retry_count = 0 WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)`, id, userID) //nolint:errcheck
+	}
+	if body.TargetDirectory != nil {
+		targetDirectory, err := downloader.NormalizeTargetDirectory(*body.TargetDirectory, h.downloadsDir, h.mediaPath)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		h.db.Exec(`UPDATE download_jobs SET target_directory = $2, updated_at = NOW() WHERE id = $1 AND (user_id = $3 OR user_id IS NULL)`, id, targetDirectory, userID) //nolint:errcheck
 	}
 
 	h.Get(c)

@@ -218,13 +218,7 @@ func (m *Manager) setStatus(id string, status models.DownloadStatus, errMsg stri
 }
 
 func (m *Manager) resolveTargetDirectory(targetDirectory string) string {
-	if targetDirectory != "" {
-		return targetDirectory
-	}
-	if m.downloadsDir != "" {
-		return m.downloadsDir
-	}
-	return "/downloads"
+	return ResolveTargetDirectory(targetDirectory, m.downloadsDir, m.mediaPath)
 }
 
 // UpdateProgress writes progress fields to the database.
