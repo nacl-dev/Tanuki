@@ -172,7 +172,7 @@ func (h *MediaHandler) List(c *gin.Context) {
 		return
 	}
 
-	if err := h.populateMediaRelations(items); err != nil {
+	if err := h.populateMediaRelations(c.GetString("userID"), items); err != nil {
 		respondError(c, http.StatusInternalServerError, "load media relations: "+err.Error())
 		return
 	}
@@ -826,7 +826,7 @@ func removeIfExists(path string) error {
 }
 
 func (h *MediaHandler) respondMedia(c *gin.Context, id string, incrementView bool) {
-	item, err := h.findMediaByID(id, incrementView)
+	item, err := h.findMediaByID(id, c.GetString("userID"), incrementView)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			respondError(c, http.StatusNotFound, "media not found")
@@ -838,7 +838,7 @@ func (h *MediaHandler) respondMedia(c *gin.Context, id string, incrementView boo
 	respondOK(c, item, nil)
 }
 
-func (h *MediaHandler) findMediaByID(id string, incrementView bool) (models.Media, error) {
+func (h *MediaHandler) findMediaByID(id, requesterUserID string, incrementView bool) (models.Media, error) {
 	var item models.Media
 	if err := h.db.Get(&item, `SELECT * FROM media WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
 		return models.Media{}, err
@@ -849,7 +849,7 @@ func (h *MediaHandler) findMediaByID(id string, incrementView bool) (models.Medi
 		}
 	}
 	items := []models.Media{item}
-	if err := h.populateMediaRelations(items); err != nil {
+	if err := h.populateMediaRelations(requesterUserID, items); err != nil {
 		return models.Media{}, err
 	}
 	return items[0], nil
@@ -946,7 +946,7 @@ func saveResizedThumbnail(img image.Image, path string) error {
 	return nil
 }
 
-func (h *MediaHandler) populateMediaRelations(items []models.Media) error {
+func (h *MediaHandler) populateMediaRelations(requesterUserID string, items []models.Media) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -987,14 +987,16 @@ func (h *MediaHandler) populateMediaRelations(items []models.Media) error {
 		Name    string `db:"name"`
 	}
 	var collectionRows []mediaCollectionRow
+	collectionArgs := append(append([]interface{}{}, ids...), requesterUserID)
 	collectionQuery := `
 		SELECT mc.media_id, c.id, c.name
 		FROM media_collections mc
 		JOIN collections c ON c.id = mc.collection_id
 		WHERE mc.media_id IN (` + strings.Join(placeholders, ",") + `)
+		  AND (c.user_id = $` + itoa(len(ids)+1) + ` OR c.user_id IS NULL)
 		ORDER BY c.name ASC
 	`
-	if err := h.db.Select(&collectionRows, collectionQuery, ids...); err != nil {
+	if err := h.db.Select(&collectionRows, collectionQuery, collectionArgs...); err != nil {
 		return err
 	}
 	for _, row := range collectionRows {

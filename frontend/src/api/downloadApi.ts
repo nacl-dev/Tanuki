@@ -1,4 +1,4 @@
-import client from './client'
+import client, { appPath } from './client'
 import type { ApiResponse } from './mediaApi'
 
 export interface DownloadJob {
@@ -47,7 +47,9 @@ export const downloadApi = {
     if (status) {
       params.set('status', status)
     }
-    return params.size > 0 ? `/api/downloads/stream?${params.toString()}` : '/api/downloads/stream'
+    return params.size > 0
+      ? appPath(`/api/downloads/stream?${params.toString()}`)
+      : appPath('/api/downloads/stream')
   },
 
   get: (id: string) =>

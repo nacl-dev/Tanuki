@@ -156,7 +156,7 @@ function onEnter() {
   const nextQuery = query.value.trim()
   mediaStore.setFilter('q', nextQuery)
   void router.replace({
-    path: '/',
+    name: 'library',
     query: {
       ...(activeTags.value.length ? { tags: activeTags.value.join(',') } : {}),
       ...(nextQuery ? { q: nextQuery } : {}),
@@ -181,7 +181,7 @@ function applySuggestion(suggestion: SearchSuggestion) {
     mediaStore.filters.tags = ''
     query.value = suggestion.value
     mediaStore.setFilter('q', suggestion.value)
-    void router.replace({ path: '/', query: {} })
+    void router.replace({ name: 'library', query: {} })
   }
   suggestions.value = []
   activeIndex.value = -1
@@ -196,14 +196,14 @@ function addTag(tag: string) {
   const next = [...activeTags.value, tag].filter((item, index, arr) => arr.indexOf(item) === index)
   mediaStore.filters.tag = ''
   mediaStore.setFilter('tags', next.join(','))
-  void router.replace({ path: '/', query: { tags: next.join(',') } })
+  void router.replace({ name: 'library', query: { tags: next.join(',') } })
 }
 
 function removeTag(tag: string) {
   const next = activeTags.value.filter((item) => item !== tag)
   mediaStore.filters.tag = ''
   mediaStore.setFilter('tags', next.join(','))
-  void router.replace({ path: '/', query: next.length ? { tags: next.join(',') } : {} })
+  void router.replace({ name: 'library', query: next.length ? { tags: next.join(',') } : {} })
 }
 
 function clearAll() {
@@ -214,7 +214,7 @@ function clearAll() {
   mediaStore.fetchList()
   suggestions.value = []
   showSuggestions.value = false
-  void router.replace({ path: '/', query: {} })
+  void router.replace({ name: 'library', query: {} })
 }
 
 function onDocumentClick(event: MouseEvent) {

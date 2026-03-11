@@ -83,11 +83,21 @@ router.beforeEach(async (to) => {
   const requiresAuth = to.meta.requiresAuth !== false
 
   if (requiresAuth && !authStore.isAuthenticated) {
-    return { name: 'login' }
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath },
+    }
   }
 
   if (!requiresAuth && authStore.isAuthenticated) {
-    return { name: 'library' }
+    const redirect =
+      typeof to.query.redirect === 'string' &&
+      to.query.redirect.startsWith('/') &&
+      !to.query.redirect.startsWith('//')
+        ? to.query.redirect
+        : undefined
+
+    return redirect ?? { name: 'library' }
   }
 })
 

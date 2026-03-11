@@ -52,10 +52,11 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import { useAuthStore } from '@/stores/authStore'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -63,12 +64,20 @@ const form = ref({ username: '', password: '' })
 const loading = ref(false)
 const error = ref('')
 
+function loginRedirect() {
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  if (redirect.startsWith('/') && !redirect.startsWith('//')) {
+    return redirect
+  }
+  return { name: 'library' as const }
+}
+
 async function onSubmit() {
   error.value = ''
   loading.value = true
   try {
     await authStore.login(form.value.username, form.value.password)
-    router.push('/')
+    await router.push(loginRedirect())
   } catch (e: any) {
     error.value = e.message ?? 'Login failed'
   } finally {

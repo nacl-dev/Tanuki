@@ -196,32 +196,65 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 
 			// System info (v1.0)
 			protected.GET("/system/info", func(c *gin.Context) {
+				userID := c.GetString("userID")
 				isAdmin := c.GetString("role") == "admin"
 				var mediaCount int
 				_ = db.Get(&mediaCount, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL`)
 				var pluginCount int
 				_ = db.Get(&pluginCount, `SELECT COUNT(*) FROM plugins`)
+
+				downloadCountQuery := `SELECT COUNT(*) FROM download_jobs`
+				downloadActiveQuery := `SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'downloading', 'processing', 'paused')`
+				downloadFailedQuery := `SELECT COUNT(*) FROM download_jobs WHERE status = 'failed'`
+				lastCompletedDownloadQuery := `SELECT completed_at FROM download_jobs WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1`
+				scheduleTotalQuery := `SELECT COUNT(*) FROM download_schedules`
+				scheduleEnabledQuery := `SELECT COUNT(*) FROM download_schedules WHERE enabled = TRUE`
+				queryArgs := []interface{}{}
+				taskSummary := taskManager.Summary()
+
+				backgroundTasksActive := taskSummary.Active
+				backgroundTasksFailed := taskSummary.Failed
+				if !isAdmin {
+					queryArgs = append(queryArgs, userID)
+					downloadCountQuery += ` WHERE user_id = $1`
+					downloadActiveQuery += ` AND user_id = $1`
+					downloadFailedQuery += ` AND user_id = $1`
+					lastCompletedDownloadQuery = `SELECT completed_at FROM download_jobs WHERE user_id = $1 AND completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1`
+					scheduleTotalQuery += ` WHERE user_id = $1`
+					scheduleEnabledQuery += ` WHERE user_id = $1 AND enabled = TRUE`
+
+					backgroundTasksActive = 0
+					backgroundTasksFailed = 0
+					for _, task := range taskManager.ListForRequester(userID, 0) {
+						switch task.Status {
+						case taskqueue.StatusQueued, taskqueue.StatusRunning:
+							backgroundTasksActive++
+						case taskqueue.StatusFailed:
+							backgroundTasksFailed++
+						}
+					}
+				}
+
 				var downloadsTotal int
-				_ = db.Get(&downloadsTotal, `SELECT COUNT(*) FROM download_jobs`)
+				_ = db.Get(&downloadsTotal, downloadCountQuery, queryArgs...)
 				var downloadsActive int
-				_ = db.Get(&downloadsActive, `SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'downloading', 'processing', 'paused')`)
+				_ = db.Get(&downloadsActive, downloadActiveQuery, queryArgs...)
 				var downloadsFailed int
-				_ = db.Get(&downloadsFailed, `SELECT COUNT(*) FROM download_jobs WHERE status = 'failed'`)
+				_ = db.Get(&downloadsFailed, downloadFailedQuery, queryArgs...)
 				var schedulesTotal int
-				_ = db.Get(&schedulesTotal, `SELECT COUNT(*) FROM download_schedules`)
+				_ = db.Get(&schedulesTotal, scheduleTotalQuery, queryArgs...)
 				var schedulesEnabled int
-				_ = db.Get(&schedulesEnabled, `SELECT COUNT(*) FROM download_schedules WHERE enabled = TRUE`)
+				_ = db.Get(&schedulesEnabled, scheduleEnabledQuery, queryArgs...)
 				var autoTagPending int
 				_ = db.Get(&autoTagPending, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL AND auto_tag_status IN ('pending', 'processing')`)
 				var lastCompletedDownload *time.Time
-				_ = db.Get(&lastCompletedDownload, `SELECT completed_at FROM download_jobs WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1`)
+				_ = db.Get(&lastCompletedDownload, lastCompletedDownloadQuery, queryArgs...)
 				pathHealth := gin.H{
 					"media":      pathStatus(cfg.MediaPath),
 					"downloads":  pathStatus(cfg.DownloadsPath),
 					"thumbnails": pathStatus(cfg.ThumbnailsPath),
 					"inbox":      pathStatus(cfg.InboxPath),
 				}
-				taskSummary := taskManager.Summary()
 				payload := gin.H{
 					"version":                 "1.0.0",
 					"media_count":             mediaCount,
@@ -232,8 +265,8 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 					"schedules_total":         schedulesTotal,
 					"schedules_enabled":       schedulesEnabled,
 					"autotag_pending":         autoTagPending,
-					"background_tasks_active": taskSummary.Active,
-					"background_tasks_failed": taskSummary.Failed,
+					"background_tasks_active": backgroundTasksActive,
+					"background_tasks_failed": backgroundTasksFailed,
 					"last_completed_download": lastCompletedDownload,
 					"plugins_enabled":         cfg.PluginsEnabled,
 					"registration_enabled":    cfg.RegistrationEnabled,

@@ -15,10 +15,15 @@ services:
       - THUMBNAILS_PATH=/thumbnails
       - DOWNLOADS_PATH=/media
       - INBOX_PATH=/inbox
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - SECRET_KEY_FILE=${SECRET_KEY_FILE:-/app/config/secret.key}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
+      - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-true}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PORT=8080
       - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - DUPLICATE_THRESHOLD=${DUPLICATE_THRESHOLD:-10}
       - PLUGINS_PATH=/app/config/plugins
       - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
     volumes:
@@ -53,9 +58,19 @@ services:
       - MEDIA_PATH=/media
       - THUMBNAILS_PATH=/thumbnails
       - INBOX_PATH=/inbox
+      - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - SAUCENAO_API_KEY=${SAUCENAO_API_KEY:-}
+      - IQDB_ENABLED=${IQDB_ENABLED:-true}
+      - AUTOTAG_SIMILARITY_THRESHOLD=${AUTOTAG_SIMILARITY_THRESHOLD:-80}
+      - AUTOTAG_ON_SCAN=${AUTOTAG_ON_SCAN:-false}
+      - AUTOTAG_RATE_LIMIT_MS=${AUTOTAG_RATE_LIMIT_MS:-5000}
+      - DUPLICATE_THRESHOLD=${DUPLICATE_THRESHOLD:-10}
+      - PHASH_ON_SCAN=${PHASH_ON_SCAN:-true}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PLUGINS_PATH=/app/config/plugins
       - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - SECRET_KEY_FILE=${SECRET_KEY_FILE:-/app/config/secret.key}
     volumes:
       - ./media:/media:ro
       - ./inbox:/inbox:ro
@@ -79,11 +94,15 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379}
       - DOWNLOADS_PATH=/media
+      - MEDIA_PATH=/media
+      - THUMBNAILS_PATH=/thumbnails
       - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
       - RATE_LIMIT_DELAY=${RATE_LIMIT_DELAY:-1000}
       - DOWNLOADER_COOKIES_FILE=${DOWNLOADER_COOKIES_FILE:-}
       - YTDLP_IMPERSONATE=${YTDLP_IMPERSONATE:-chrome}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - SECRET_KEY_FILE=${SECRET_KEY_FILE:-/app/config/secret.key}
     volumes:
       - ./media:/media
       - downloads:/downloads

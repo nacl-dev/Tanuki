@@ -1,4 +1,4 @@
-import client from './client'
+import client, { appPath } from './client'
 
 export type BackgroundTaskStatus = 'queued' | 'running' | 'completed' | 'failed'
 
@@ -23,7 +23,7 @@ export const taskApi = {
   list: (limit = 20) =>
     client.get<{ data: BackgroundTask[] }>(`/tasks?limit=${limit}`).then((r) => r.data.data),
 
-  streamUrl: (limit = 20) => `/api/tasks/stream?limit=${limit}`,
+  streamUrl: (limit = 20) => appPath(`/api/tasks/stream?limit=${limit}`),
 
   get: (id: string) =>
     client.get<{ data: BackgroundTask }>(`/tasks/${id}`).then((r) => r.data.data),

@@ -1,4 +1,4 @@
-import client from './client'
+import client, { appPath } from './client'
 
 export interface Media {
   id: string
@@ -123,7 +123,7 @@ export const mediaApi = {
 }
 
 function withVersion(pathname: string, version?: string): string {
-  const url = new URL(pathname, window.location.origin)
+  const url = new URL(appPath(pathname), window.location.origin)
   if (version) {
     url.searchParams.set('v', version)
   }

@@ -31,9 +31,9 @@ defineEmits<{
 const authStore = useAuthStore()
 const router = useRouter()
 
-function onLogout() {
-  authStore.logout()
-  router.push('/login')
+async function onLogout() {
+  await authStore.logout()
+  await router.push({ name: 'login' })
 }
 </script>
 

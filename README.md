@@ -1,267 +1,251 @@
-# 🦝 Tanuki
+# Tanuki
 
-> **Self-hosted media vault** for videos, images, manga, comics, doujinshi and source downloads.
+Tanuki is a self-hosted media vault for mixed libraries that include videos, images, manga, comics and source downloads. It combines scanning, playback, reading, metadata management, downloads, auto-tagging, duplicate detection and collections in a Docker-based stack.
 
-Tanuki brings library management, downloading, tagging, reading and playback together in one Docker-based stack.
+## Release Status
 
-## ✨ Overview
+Current status: ready for release
 
-Tanuki is built for collections that are:
+Release assumptions:
 
-- mixed across multiple media types
-- partially unorganized
-- spread across local files and public source sites
-- meant to be browsed, edited and resumed from the browser
+- deployment uses the provided Docker stack or an equivalent environment
+- PostgreSQL and Redis are reachable from the application containers
+- the `config` volume remains persistent if you rely on automatic secret generation
 
-It combines:
+The current release scope is a shared media library with per-user collections, downloads and schedules.
 
-- a recursive media library scanner
-- a download queue with site-specific connectors
-- a video player and manga/comic reader
-- metadata editing and thumbnail management
-- reverse-image auto-tagging
-- duplicate detection
-- manual and smart collections
-- multi-user authentication
+## Core Capabilities
 
-## 🚀 Highlights
-
-| Area | What you get |
-|---|---|
-| 📚 Library | Scan `/media`, detect media types, generate thumbnails, edit metadata |
-| 📥 Intake | Import unorganized files from `/inbox` |
-| 🎬 Viewer | Custom video player, manga/comic reader, fullscreen, resume/progress |
-| ⬇️ Downloads | Queue, schedules, live progress, automatic organize + scan |
-| 🏷️ Tags | Filtering, search, counts, auto-tagging |
-| 🧩 Duplicates | Perceptual hash duplicate detection |
-| 📦 Collections | Manual collections and rule-based smart collections |
-| 🔐 Auth | Multi-user login and protected API routes |
-
-## 🧰 Feature Set
-
-### 📚 Library
+### Library
 
 - Recursive scan of `/media`
-- Supported media types:
-  - `video`
-  - `image`
-  - `manga`
-  - `comic`
-  - `doujinshi`
-- Automatic type detection for common video, image and archive files
-- Archive reader support for `.cbz`, `.zip`, `.rar` and `.cbr` through `bsdtar`
-- Automatic thumbnail generation for local media
-- Frontend metadata editing:
-  - title
-  - date
-  - language
-  - source URL
-  - tags
-  - custom cover upload
-  - remote cover URL
-- Delete from database only or delete local file too
+- Automatic media type detection for common video, image and archive formats
+- Thumbnail generation for local media
+- Metadata editing in the browser
+- Optional delete from database only or from disk as well
 
-### 🎬 Reader and Player
+Supported library media types:
 
-- Custom video player with:
-  - click-anywhere play/pause
-  - speed controls
-  - fullscreen
-  - saved resume position
-- Manga/comic reader with:
-  - single page
-  - double page
-  - scroll mode
-  - RTL mode
-  - zoom controls
-  - fullscreen
-  - saved read progress
+- `video`
+- `image`
+- `manga`
+- `comic`
+- `doujinshi`
 
-### ⬇️ Downloads
+Supported archive reader formats:
+
+- `.cbz`
+- `.zip`
+- `.cbr`
+- `.rar`
+
+### Reader and Player
+
+- Video playback with resume support
+- Manga and comic reader with single-page, double-page, scroll and RTL modes
+- Persistent reader and player preferences in the browser
+
+### Downloads
 
 - Queue-based download manager
-- Live progress updates
 - Scheduled downloads
 - Batch URL submission
-- Automatic organize after download
-- Automatic library refresh after completion
+- Automatic organize and follow-up scan after completion
+- Site-specific connectors plus `yt-dlp`, `gallery-dl` and direct HTTP fallback
 
 Currently supported public connectors:
 
-- `hentai0.com` video pages
-- `doujins.com` gallery pages
-- `rule34.art` comic and video pages
-- `danbooru.donmai.us` post pages
-- `safebooru.org` post pages
-- `gelbooru.com` post pages
+- `hentai0.com`
+- `doujins.com`
+- `rule34.art`
+- `danbooru.donmai.us`
+- `safebooru.org`
+- `gelbooru.com`
 
-Generic tools still available where useful:
+### Metadata and Organization
 
-- `yt-dlp`
-- `gallery-dl`
-- HTTP fallback for direct media files
-
-### 🏷️ Tags, Duplicates and Auto-Tagging
-
-- Tag filters and tag search in the library
-- Real usage-based tag counts
-- Reverse-image-based auto-tag flow
-- Perceptual hash duplicate detection
-
-### 📦 Collections
-
+- Tag search and tag-based filtering
+- Reverse-image auto-tagging
+- Duplicate detection via perceptual hash
 - Manual collections
-- Smart collections with rules for:
-  - media type
-  - title contains
-  - tag
-  - favorites only
-  - minimum rating
-- Manual items and automatic matches can coexist in the same collection
+- Smart collections based on type, title, tag, favorite flag and minimum rating
 
-## ⚡ Quick Start
+### Access Control
 
-### Requirements
+- Multi-user authentication
+- Admin-only user management
+- Admin-only plugin management
 
-- Docker
-- Docker Compose
+## Architecture
 
-### Start
-
-```bash
-git clone https://github.com/nacl-dev/Tanuki.git
-cd Tanuki
-docker compose up -d --build
-```
-
-Open:
-
-- [http://localhost:8080](http://localhost:8080)
-
-### Good to know
-
-- `media/` and `inbox/` are created automatically by Docker bind mounts
-- you do not need to create the folder structure manually
-- database migrations run automatically on startup
-
-## 🐳 Services
+The default stack contains five services:
 
 | Service | Purpose | Port |
 |---|---|---|
-| `app` | API server + frontend | `8080` |
-| `worker` | scanner, thumbnails, background processing | - |
-| `downloader` | queued download daemon | - |
+| `app` | HTTP API and compiled frontend | `8080` |
+| `worker` | library scans, thumbnails, background processing | - |
+| `downloader` | queued and scheduled downloads | - |
 | `db` | PostgreSQL 16 | internal |
 | `cache` | Redis 7 | internal |
 
-## 📁 Paths
-
-### Inside containers
+Runtime paths inside the containers:
 
 - media library: `/media`
 - inbox: `/inbox`
 - thumbnails: `/thumbnails`
 - downloads: `/media`
 
-### On the host
+Host paths in the default Docker setup:
 
 - library files: `./media`
 - intake folder: `./inbox`
 
-### Typical library structure
+## Quick Start
 
-```text
-media/
-  Video/
-    2D (Hentai)/
-    3D (Real)/
-  Image/
-    CG Sets/
-    GIFs/
-    Random/
-  Comics/
-    Manga/
-    Doujins/
+### Requirements
+
+- Docker
+- Docker Compose
+
+### First Startup
+
+```bash
+git clone https://github.com/nacl-dev/Tanuki.git
+cd Tanuki
+cp .env.example .env
 ```
 
-## ⚙️ Configuration
+Secret handling:
 
-The stack works with defaults, but environment variables can override runtime behavior.
+- if `SECRET_KEY` is left empty, Tanuki generates a strong key on first start and stores it in the persistent `config` volume
+- if you prefer external secret management, set `SECRET_KEY` manually to a random value of at least 32 characters
+- optionally set `JWT_SECRET` separately if you do not want it to fall back to `SECRET_KEY`
+
+Start the stack:
+
+```bash
+docker compose up -d --build
+```
+
+Open the application:
+
+- [http://localhost:8080](http://localhost:8080)
+
+Verify basic health:
+
+```bash
+docker compose ps
+curl http://localhost:8080/api/health
+```
+
+### What Happens on First Boot
+
+- Docker bind mounts create `media/` and `inbox/` automatically
+- if `SECRET_KEY` is empty, Tanuki creates `/app/config/secret.key` once and reuses it on later starts
+- the backend applies database migrations on startup
+- the worker performs an initial scan cycle
+- the first registered user becomes admin
+
+## Configuration
+
+The stack works with sensible defaults, but the following variables are the important operational ones.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `8080` | App port |
+| `PORT` | `8080` | HTTP port exposed by the app container |
 | `DATABASE_URL` | `postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable` | PostgreSQL DSN |
-| `REDIS_URL` | `redis://cache:6379` | Redis URL |
-| `MEDIA_PATH` | `/media` | Library root |
-| `INBOX_PATH` | `/inbox` | Intake/import root |
-| `THUMBNAILS_PATH` | `/thumbnails` | Thumbnail storage |
-| `DOWNLOADS_PATH` | `/media` | Download target root |
-| `SECRET_KEY` | `change-me-in-production` | App/auth secret |
+| `REDIS_URL` | `redis://cache:6379` | Redis connection string |
+| `MEDIA_PATH` | `/media` | library root |
+| `INBOX_PATH` | `/inbox` | import root |
+| `THUMBNAILS_PATH` | `/thumbnails` | thumbnail storage |
+| `DOWNLOADS_PATH` | `/media` | allowed download root |
+| `SECRET_KEY` | auto-generated if empty | application secret, minimum 32 characters |
+| `SECRET_KEY_FILE` | `/app/config/secret.key` | persistent file used when `SECRET_KEY` is not set |
 | `JWT_SECRET` | falls back to `SECRET_KEY` | JWT signing key |
-| `JWT_EXPIRY_HOURS` | `24` | Login token lifetime |
-| `SCAN_INTERVAL` | `300` | Background scan interval in seconds |
-| `MAX_CONCURRENT_DOWNLOADS` | `3` | Parallel download jobs |
-| `RATE_LIMIT_DELAY` | `1000` | Delay between source requests in ms |
-| `DOWNLOADER_COOKIES_FILE` | empty | Optional Netscape `cookies.txt` for sources behind browser checks |
-| `YTDLP_IMPERSONATE` | `chrome` | yt-dlp impersonation target for stricter sources |
-| `SAUCENAO_API_KEY` | empty | SauceNAO support for auto-tagging |
-| `IQDB_ENABLED` | `true` | IQDB fallback |
-| `AUTOTAG_SIMILARITY_THRESHOLD` | `80` | Auto-tag confidence threshold |
-| `AUTOTAG_ON_SCAN` | `false` | Auto-tag during scan |
-| `AUTOTAG_RATE_LIMIT_MS` | `5000` | Auto-tag request spacing |
+| `JWT_EXPIRY_HOURS` | `24` | login token lifetime |
+| `REGISTRATION_ENABLED` | `true` | allow self-registration |
+| `SCAN_INTERVAL` | `300` | automatic scan interval in seconds |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | parallel download jobs |
+| `RATE_LIMIT_DELAY` | `1000` | delay between source requests in ms |
+| `DOWNLOADER_COOKIES_FILE` | empty | optional Netscape `cookies.txt` path |
+| `YTDLP_IMPERSONATE` | `chrome` | yt-dlp impersonation target |
+| `SAUCENAO_API_KEY` | empty | SauceNAO API key for auto-tagging |
+| `IQDB_ENABLED` | `true` | IQDB fallback toggle |
+| `AUTOTAG_SIMILARITY_THRESHOLD` | `80` | minimum confidence for auto-tagging |
+| `AUTOTAG_ON_SCAN` | `false` | auto-tag during scan |
+| `AUTOTAG_RATE_LIMIT_MS` | `5000` | auto-tag request spacing |
 | `DUPLICATE_THRESHOLD` | `10` | pHash duplicate threshold |
-| `PHASH_ON_SCAN` | `true` | Compute pHash on scan |
-| `REGISTRATION_ENABLED` | `true` | Allow self-registration |
-| `PLUGINS_ENABLED` | `true` | Plugin system toggle |
-| `PLUGINS_PATH` | `/app/config/plugins` | Plugin folder |
+| `PHASH_ON_SCAN` | `true` | calculate pHash during scan |
+| `PLUGINS_ENABLED` | `true` | plugin system toggle |
+| `PLUGINS_PATH` | `/app/config/plugins` | plugin directory |
 
-## 🛠️ Typical Workflows
+See `.env.example` for the complete example file.
 
-### Import existing files
+## Typical Workflows
 
-1. Drop files or folders into `./inbox`
-2. Trigger `Scan Library` or use the organize flow
-3. Tanuki moves or copies them into the library structure
-4. The worker scans them and generates thumbnails
+### Import Existing Files
 
-### Download from a supported source
+1. Copy files or folders into `./inbox`
+2. Trigger library scan or organize from the UI
+3. Tanuki moves or copies files into the managed library structure
+4. The worker generates thumbnails and updates metadata
 
-1. Open Downloads
-2. Paste one or more URLs
-3. Watch live progress
-4. On completion, files are organized and scanned into the library automatically
+### Download from a Supported Source
 
-For stricter sources protected by Cloudflare or browser verification, export a Netscape-format `cookies.txt` file from your browser and set `DOWNLOADER_COOKIES_FILE` to a path that is mounted into the `downloader` container, for example `/media/.cookies/rule34.txt`.
+1. Open the Downloads page
+2. Paste one or more supported URLs
+3. Monitor progress in the queue
+4. Finished files are organized and scanned into the library
 
-### Build a smart collection
+For stricter sources behind browser verification, export a Netscape-format `cookies.txt` file and set `DOWNLOADER_COOKIES_FILE` to a mounted path, for example `/media/.cookies/rule34.txt`.
+
+### Build Smart Collections
 
 Examples:
 
-- all `video` items with title containing `Venus Blood`
+- all videos with titles containing `Venus Blood`
 - all media tagged `tentacles`
-- favorites with rating `4★+`
+- all favorites with rating `4` or higher
 
-## 🔌 API Surface
+## Multi-User Model
 
-Main authenticated API groups:
+Current behavior is intentionally mixed by product area:
 
-- `/api/auth`
-- `/api/media`
-- `/api/collections`
-- `/api/tags`
-- `/api/downloads`
-- `/api/schedules`
-- `/api/library`
-- `/api/duplicates`
-- `/api/plugins`
+- media files and tags are shared across the instance
+- collections are user-scoped
+- download jobs are user-scoped
+- download schedules are user-scoped
+- runtime and path details are visible only to admins
+- plugins are admin-only
+
+If strict per-user library isolation is required, that should be treated as a separate product change rather than assumed from the current release.
+
+## Security and Operational Notes
+
+- keep the `config` volume persistent if you use the auto-generated secret
+- download targets are restricted to configured managed roots
+- protected media responses are sent with private caching
+- plugin management is restricted to admin users
+- path and runtime details are reduced for non-admin users
+
+Recommended production practices:
+
+- put the stack behind a reverse proxy with TLS
+- keep `.env` out of version control
+- back up PostgreSQL and the `media/` volume regularly
+- mount `config/` and `plugins/` persistently if you use them
+- restrict host access to the Docker socket and runtime directories
+
+## Base Path and Reverse Proxy Notes
+
+The frontend supports deployment behind a subpath via `BASE_URL` in the Vite build. If you publish Tanuki behind a reverse proxy prefix, make sure the built frontend and the proxy path agree.
 
 Health endpoints:
 
 - `/healthz`
 - `/api/health`
 
-## 🗂️ Project Structure
+## Project Layout
 
 ```text
 Tanuki/
@@ -290,6 +274,7 @@ Tanuki/
       pages/
       router/
       stores/
+  config/
   docs/
   media/
   inbox/
@@ -297,26 +282,40 @@ Tanuki/
   Dockerfile
 ```
 
-## 📝 Notes
+## Development and Verification
 
-- `media/` and `inbox/` are runtime data, not source files
-- empty runtime folders are intentionally not tracked in Git
-- downloaded media should not be committed
-- current Docker defaults write downloads into `/media`; use `DOWNLOADS_PATH` only if you want a different allowed root
+Useful local checks:
 
-## 👥 Multi-user Behavior
+```bash
+cd backend
+go test ./...
 
-Current behavior is mixed by product area:
+cd ../frontend
+npm run lint
+npm run test
+npm run build
+```
 
-- media files and tags behave as one shared library
-- collections are user-scoped
-- download jobs and schedules are user-scoped
-- authentication controls access and admin-only actions
-- plugins are admin-only
-- `owner_id` exists in the schema for future evolution, but is not part of the active product model today
+Container build verification:
 
-If you need hard per-user library isolation, plan that as a dedicated follow-up instead of assuming it today.
+```bash
+docker compose config
+docker build --target app -t tanuki-release-check .
+```
 
-## 📄 License
+Note about `go test -race`:
+
+- the race detector requires CGO
+- in the current Windows environment `CGO_ENABLED=0` and no `gcc` or `clang` toolchain is installed
+- to run race tests locally, install a C toolchain first, for example Visual Studio Build Tools, LLVM or MinGW, and make sure it is available on `PATH`
+
+## Known Product Boundaries
+
+- the library itself is shared across users
+- plugins are available only when Python-based plugin execution is enabled
+- stricter source sites may still require browser-exported cookies
+- operational hardening beyond the provided Compose stack is the responsibility of the deployment
+
+## License
 
 [MIT](LICENSE)

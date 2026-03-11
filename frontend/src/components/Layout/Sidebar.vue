@@ -65,9 +65,9 @@ const navItems = [
   { name: 'settings',   to: '/settings',    icon: 'settings',   label: 'Settings'    },
 ]
 
-function onLogout() {
-  authStore.logout()
-  router.push('/login')
+async function onLogout() {
+  await authStore.logout()
+  await router.push({ name: 'login' })
 }
 </script>
 

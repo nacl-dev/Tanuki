@@ -7,6 +7,7 @@ export const useMediaStore = defineStore('media', () => {
   const total = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  let latestRequestId = 0
 
   const filters = reactive<MediaListParams>({
     page: 1,
@@ -24,16 +25,25 @@ export const useMediaStore = defineStore('media', () => {
   const currentPage = computed(() => filters.page ?? 1)
 
   async function fetchList() {
+    const requestId = ++latestRequestId
+    const params = { ...filters }
+    const isLatestRequest = () => requestId === latestRequestId
     loading.value = true
     error.value = null
     try {
-      const res = await mediaApi.list(filters)
-      items.value = res.data ?? []
-      total.value = res.meta?.total ?? 0
+      const res = await mediaApi.list(params)
+      if (isLatestRequest()) {
+        items.value = res.data ?? []
+        total.value = res.meta?.total ?? 0
+      }
     } catch (e: any) {
-      error.value = e.message
+      if (isLatestRequest()) {
+        error.value = e.message
+      }
     } finally {
-      loading.value = false
+      if (isLatestRequest()) {
+        loading.value = false
+      }
     }
   }
 

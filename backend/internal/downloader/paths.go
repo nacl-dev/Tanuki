@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -17,7 +18,10 @@ func NormalizeTargetDirectory(targetDirectory, downloadsDir, mediaPath string) (
 		return "", fmt.Errorf("target_directory must be an absolute path")
 	}
 
-	cleaned := filepath.Clean(targetDirectory)
+	cleaned, err := canonicalTargetPath(targetDirectory)
+	if err != nil {
+		return "", fmt.Errorf("target_directory is invalid: %w", err)
+	}
 	for _, root := range allowedTargetRoots(downloadsDir, mediaPath) {
 		if isWithinRoot(cleaned, root) {
 			return cleaned, nil
@@ -56,7 +60,10 @@ func allowedTargetRoots(downloadsDir, mediaPath string) []string {
 		if raw == "" || !filepath.IsAbs(raw) {
 			continue
 		}
-		cleaned := filepath.Clean(raw)
+		cleaned, err := canonicalTargetPath(raw)
+		if err != nil {
+			continue
+		}
 		if _, ok := seen[cleaned]; ok {
 			continue
 		}
@@ -72,4 +79,40 @@ func isWithinRoot(path, root string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func canonicalTargetPath(path string) (string, error) {
+	cleaned := strings.TrimSpace(path)
+	if cleaned == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+
+	absolute, err := filepath.Abs(filepath.Clean(cleaned))
+	if err != nil {
+		return "", err
+	}
+
+	current := absolute
+	missingSegments := make([]string, 0, 4)
+	for {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			for i := len(missingSegments) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missingSegments[i])
+			}
+			return filepath.Clean(resolved), nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			for i := len(missingSegments) - 1; i >= 0; i-- {
+				current = filepath.Join(current, missingSegments[i])
+			}
+			return filepath.Clean(current), nil
+		}
+
+		missingSegments = append(missingSegments, filepath.Base(current))
+		current = parent
+	}
 }

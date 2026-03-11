@@ -27,8 +27,8 @@ export const useAuthStore = defineStore('auth', () => {
     return newUser
   }
 
-  function logout() {
-    void authApi.logout().catch(() => {})
+  async function logout() {
+    await authApi.logout()
     user.value = null
     hydrated.value = true
   }
