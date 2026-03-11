@@ -4,8 +4,6 @@ Tanuki is a self-hosted media vault for mixed libraries that include videos, ima
 
 ![Tanuki library preview with blurred covers and names](docs/assets/readme-preview-blurred.png)
 
-Preview screenshot with cover art and item names intentionally blurred for privacy.
-
 ## Release Status
 
 Current status: ready for release
