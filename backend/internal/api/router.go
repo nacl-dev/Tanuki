@@ -15,6 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const appVersion = "v0.1.1"
+
 // Router creates and returns a configured Gin engine with all API routes
 // and a static file server for the compiled frontend.
 func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistry *plugins.Registry, log *zap.Logger) *gin.Engine {
@@ -62,7 +64,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "1.0.0"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": appVersion})
 	})
 
 	// ─── Auth routes (public) ─────────────────────────────────────────────────
@@ -256,7 +258,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 					"inbox":      pathStatus(cfg.InboxPath),
 				}
 				payload := gin.H{
-					"version":                 "1.0.0",
+					"version":                 appVersion,
 					"media_count":             mediaCount,
 					"plugin_count":            pluginCount,
 					"downloads_total":         downloadsTotal,
