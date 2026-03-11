@@ -145,4 +145,6 @@ Tanuki does not currently provide strict per-user library isolation.
 
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE)
+
+Tanuki is source-available for noncommercial use. Commercial use is not permitted under this license.
