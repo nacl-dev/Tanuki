@@ -1,0 +1,137 @@
+services:
+  app:
+    image: ghcr.io/${IMAGE_OWNER:-nacl-dev}/tanuki-app:${IMAGE_TAG:-latest}
+    container_name: tanuki-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
+      - MEDIA_PATH=/media
+      - THUMBNAILS_PATH=/thumbnails
+      - DOWNLOADS_PATH=/media
+      - INBOX_PATH=/inbox
+      - SECRET_KEY=${SECRET_KEY:-}
+      - SECRET_KEY_FILE=${SECRET_KEY_FILE:-/app/config/secret.key}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
+      - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PORT=8080
+      - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - DUPLICATE_THRESHOLD=${DUPLICATE_THRESHOLD:-10}
+      - PLUGINS_PATH=/app/config/plugins
+      - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
+    volumes:
+      - ./media:/media
+      - ./inbox:/inbox
+      - thumbnails:/thumbnails
+      - downloads:/downloads
+      - config:/app/config
+      - plugins:/app/config/plugins
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    image: ghcr.io/${IMAGE_OWNER:-nacl-dev}/tanuki-worker:${IMAGE_TAG:-latest}
+    container_name: tanuki-worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
+      - MEDIA_PATH=/media
+      - THUMBNAILS_PATH=/thumbnails
+      - INBOX_PATH=/inbox
+      - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - SAUCENAO_API_KEY=${SAUCENAO_API_KEY:-}
+      - IQDB_ENABLED=${IQDB_ENABLED:-true}
+      - AUTOTAG_SIMILARITY_THRESHOLD=${AUTOTAG_SIMILARITY_THRESHOLD:-80}
+      - AUTOTAG_ON_SCAN=${AUTOTAG_ON_SCAN:-false}
+      - AUTOTAG_RATE_LIMIT_MS=${AUTOTAG_RATE_LIMIT_MS:-5000}
+      - DUPLICATE_THRESHOLD=${DUPLICATE_THRESHOLD:-10}
+      - PHASH_ON_SCAN=${PHASH_ON_SCAN:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PLUGINS_PATH=/app/config/plugins
+      - PLUGINS_ENABLED=${PLUGINS_ENABLED:-true}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - SECRET_KEY_FILE=${SECRET_KEY_FILE:-/app/config/secret.key}
+    volumes:
+      - ./media:/media:ro
+      - ./inbox:/inbox:ro
+      - thumbnails:/thumbnails
+      - config:/app/config
+      - plugins:/app/config/plugins
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  downloader:
+    image: ghcr.io/${IMAGE_OWNER:-nacl-dev}/tanuki-downloader:${IMAGE_TAG:-latest}
+    container_name: tanuki-downloader
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tanuki:secret@db:5432/tanuki?sslmode=disable}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
+      - DOWNLOADS_PATH=/media
+      - MEDIA_PATH=/media
+      - THUMBNAILS_PATH=/thumbnails
+      - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
+      - RATE_LIMIT_DELAY=${RATE_LIMIT_DELAY:-1000}
+      - DOWNLOADER_COOKIES_FILE=${DOWNLOADER_COOKIES_FILE:-}
+      - YTDLP_IMPERSONATE=${YTDLP_IMPERSONATE:-chrome}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - SECRET_KEY_FILE=${SECRET_KEY_FILE:-/app/config/secret.key}
+    volumes:
+      - ./media:/media
+      - downloads:/downloads
+      - config:/app/config
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  db:
+    image: postgres:16-alpine
+    container_name: tanuki-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-tanuki}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secret}
+      - POSTGRES_DB=${POSTGRES_DB:-tanuki}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tanuki}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    container_name: tanuki-cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  thumbnails:
+  downloads:
+  config:
+  plugins:
+  redisdata:
