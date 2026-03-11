@@ -41,18 +41,37 @@
 
     <div v-else class="queue-list">
       <DownloadProgress
-        v-for="job in filtered"
+        v-for="job in paginatedJobs"
         :key="job.id"
         :job="job"
         @control="(action) => store.control(job.id, action)"
         @remove="store.remove(job.id)"
       />
     </div>
+
+    <div v-if="filtered.length > pageSize" class="queue-pagination">
+      <p class="queue-pagination__summary">
+        Showing {{ pageStart }}-{{ pageEnd }} of {{ filtered.length }} downloads
+      </p>
+      <div class="queue-pagination__controls">
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="currentPage === 1"
+          @click="currentPage -= 1"
+        >Previous</button>
+        <span class="queue-pagination__page">Page {{ currentPage }} / {{ totalPages }}</span>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="currentPage === totalPages"
+          @click="currentPage += 1"
+        >Next</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { downloadApi, type DownloadJob } from '@/api/downloadApi'
 import { useDownloadStore } from '@/stores/downloadStore'
 import AppIcon from '@/components/Layout/AppIcon.vue'
@@ -61,6 +80,8 @@ import DownloadProgress from './DownloadProgress.vue'
 const store = useDownloadStore()
 
 const activeFilter = ref('all')
+const currentPage = ref(1)
+const pageSize = 10
 const filters = [
   { value: 'all',         label: 'All'         },
   { value: 'queued',      label: 'Queued'      },
@@ -82,6 +103,18 @@ const filtered = computed(() =>
     ? sortedJobs.value
     : sortedJobs.value.filter((j) => j.status === activeFilter.value)
 )
+const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)))
+const paginatedJobs = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filtered.value.slice(start, start + pageSize)
+})
+const pageStart = computed(() => {
+  if (filtered.value.length === 0) {
+    return 0
+  }
+  return (currentPage.value - 1) * pageSize + 1
+})
+const pageEnd = computed(() => Math.min(currentPage.value * pageSize, filtered.value.length))
 const activeCount = computed(() => store.jobs.filter((job) => ['queued', 'downloading', 'processing'].includes(job.status)).length)
 const completedCount = computed(() => store.jobs.filter((job) => job.status === 'completed').length)
 const failedCount = computed(() => store.jobs.filter((job) => job.status === 'failed').length)
@@ -99,7 +132,15 @@ const liveLabel = computed(() => {
 
 function setFilter(v: string) {
   activeFilter.value = v
+  currentPage.value = 1
 }
+
+watch(filtered, (jobs) => {
+  const maxPage = Math.max(1, Math.ceil(jobs.length / pageSize))
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage
+  }
+})
 
 let eventSource: EventSource | null = null
 let fallbackInterval: ReturnType<typeof setInterval> | null = null
@@ -204,6 +245,30 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .queue-list { display: flex; flex-direction: column; gap: 8px; }
+.queue-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+.queue-pagination__summary {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.queue-pagination__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.queue-pagination__page {
+  min-width: 80px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 .queue-empty { color: var(--text-muted); text-align: center; padding: 32px; }
 .queue-empty--framed {
   display: flex;
@@ -219,6 +284,11 @@ onUnmounted(() => {
 
 @media (max-width: 720px) {
   .queue-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .queue-pagination {
     flex-direction: column;
     align-items: flex-start;
   }
