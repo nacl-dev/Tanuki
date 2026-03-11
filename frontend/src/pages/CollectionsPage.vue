@@ -168,6 +168,7 @@ const editing = ref(false)
 const draft = ref({ name: '', description: '', auto_type: '', auto_title: '', auto_tag: '', auto_favorite_mode: '', auto_min_rating: '' })
 const editForm = ref({ name: '', description: '', auto_type: '', auto_title: '', auto_tag: '', auto_favorite_mode: '', auto_min_rating: '' })
 const { pushNotice } = useNoticeStore()
+let activeSelectionRequest = 0
 
 const canCreateCollection = computed(() => !saving.value && draft.value.name.trim().length > 0)
 const canSaveCollection = computed(() => !saving.value && editForm.value.name.trim().length > 0)
@@ -198,15 +199,22 @@ async function loadCollections(selectFirst = true) {
 }
 
 async function selectCollection(id: string) {
+  const requestId = ++activeSelectionRequest
   try {
     selectedId.value = id
     const res = await collectionApi.get(id)
+    if (requestId !== activeSelectionRequest) {
+      return
+    }
     selected.value = {
       ...res.data,
       items: res.data.items ?? [],
     }
     cancelEditing()
   } catch (error) {
+    if (requestId !== activeSelectionRequest) {
+      return
+    }
     selected.value = null
     selectedId.value = ''
     const msg = error instanceof Error ? error.message : 'Failed to load collection'

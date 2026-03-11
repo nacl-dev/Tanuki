@@ -82,6 +82,7 @@ const query = ref(mediaStore.filters.q ?? '')
 const suggestions = ref<SearchSuggestion[]>([])
 const activeIndex = ref(-1)
 const showSuggestions = ref(false)
+let suggestionRequestId = 0
 
 const activeTags = computed(() => {
   const values = [
@@ -106,6 +107,7 @@ const debouncedSearch = useDebounceFn((value: string) => {
 }, 250)
 
 const debouncedSuggest = useDebounceFn(async (value: string) => {
+  const requestId = ++suggestionRequestId
   const term = value.trim()
   if (!term) {
     suggestions.value = []
@@ -127,6 +129,9 @@ const debouncedSuggest = useDebounceFn(async (value: string) => {
 
   const titleSuggestions = titlesRes.status === 'fulfilled' ? (titlesRes.value.data ?? []) : []
   const merged = [...tagSuggestions, ...titleSuggestions]
+  if (requestId !== suggestionRequestId) {
+    return
+  }
   const seen = new Set<string>()
   suggestions.value = merged.filter((item) => {
     const key = `${item.type}:${item.value.toLowerCase()}`
@@ -148,7 +153,15 @@ function onEnter() {
     applySuggestion(suggestions.value[activeIndex.value])
     return
   }
-  mediaStore.setFilter('q', query.value.trim())
+  const nextQuery = query.value.trim()
+  mediaStore.setFilter('q', nextQuery)
+  void router.replace({
+    path: '/',
+    query: {
+      ...(activeTags.value.length ? { tags: activeTags.value.join(',') } : {}),
+      ...(nextQuery ? { q: nextQuery } : {}),
+    },
+  })
   showSuggestions.value = false
 }
 

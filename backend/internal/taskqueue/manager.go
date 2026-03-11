@@ -106,6 +106,24 @@ func (m *Manager) List(limit int) []Task {
 	return result
 }
 
+func (m *Manager) ListForRequester(requestedBy string, limit int) []Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]Task, 0, limit)
+	for i := len(m.order) - 1; i >= 0; i-- {
+		task, ok := m.tasks[m.order[i]]
+		if !ok || task.RequestedBy != requestedBy {
+			continue
+		}
+		result = append(result, cloneTask(task))
+		if limit > 0 && len(result) >= limit {
+			break
+		}
+	}
+	return result
+}
+
 func (m *Manager) Get(id string) (Task, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -115,6 +133,14 @@ func (m *Manager) Get(id string) (Task, bool) {
 		return Task{}, false
 	}
 	return cloneTask(task), true
+}
+
+func (m *Manager) GetForRequester(id, requestedBy string) (Task, bool) {
+	task, ok := m.Get(id)
+	if !ok || task.RequestedBy != requestedBy {
+		return Task{}, false
+	}
+	return task, true
 }
 
 func (m *Manager) GetOrZero(id string) Task {

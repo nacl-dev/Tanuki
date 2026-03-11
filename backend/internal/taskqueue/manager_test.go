@@ -64,3 +64,37 @@ func TestManagerSummaryCountsFailedTasks(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestManagerRequesterFiltering(t *testing.T) {
+	t.Parallel()
+
+	manager := New(nil)
+	first := manager.Start("library.scan", "user-1", nil, func(ctx context.Context, handle *Handle) (any, error) {
+		return nil, nil
+	})
+	second := manager.Start("library.organize", "user-2", nil, func(ctx context.Context, handle *Handle) (any, error) {
+		return nil, nil
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		userOneTasks := manager.ListForRequester("user-1", 10)
+		userTwoTasks := manager.ListForRequester("user-2", 10)
+		if len(userOneTasks) == 1 && len(userTwoTasks) == 1 {
+			if userOneTasks[0].ID != first.ID {
+				t.Fatalf("expected only first task for user-1, got %+v", userOneTasks)
+			}
+			if userTwoTasks[0].ID != second.ID {
+				t.Fatalf("expected only second task for user-2, got %+v", userTwoTasks)
+			}
+			if _, ok := manager.GetForRequester(first.ID, "user-2"); ok {
+				t.Fatalf("expected user-2 to be blocked from user-1 task")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tasks were not visible via requester filters in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -8,18 +8,20 @@ import (
 )
 
 func ensureManagedPath(path string, roots ...string) (string, error) {
-	cleaned := strings.TrimSpace(path)
-	if cleaned == "" {
-		return "", fmt.Errorf("path is empty")
+	cleaned, err := canonicalManagedPath(path)
+	if err != nil {
+		return "", err
 	}
-
-	cleaned = filepath.Clean(cleaned)
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" {
 			continue
 		}
-		rel, err := filepath.Rel(filepath.Clean(root), cleaned)
+		canonicalRoot, err := canonicalManagedPath(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(canonicalRoot, cleaned)
 		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return cleaned, nil
 		}
@@ -37,4 +39,31 @@ func statManagedPath(path string, roots ...string) error {
 		return err
 	}
 	return nil
+}
+
+func canonicalManagedPath(path string) (string, error) {
+	cleaned := strings.TrimSpace(path)
+	if cleaned == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+
+	absolute, err := filepath.Abs(filepath.Clean(cleaned))
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return filepath.Clean(resolved), nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	parent := filepath.Dir(absolute)
+	resolvedParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return filepath.Clean(absolute), nil
+		}
+		return "", err
+	}
+	return filepath.Join(filepath.Clean(resolvedParent), filepath.Base(absolute)), nil
 }

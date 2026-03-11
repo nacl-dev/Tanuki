@@ -31,6 +31,10 @@ export const useDownloadStore = defineStore('download', () => {
     schedules.value = res.data ?? []
   }
 
+  function replaceJobs(nextJobs: DownloadJob[]) {
+    jobs.value = nextJobs
+  }
+
   async function createSchedule(input: Omit<DownloadSchedule, 'id' | 'created_at' | 'last_run' | 'next_run'>) {
     const res = await downloadApi.createSchedule(input)
     schedules.value.unshift(res.data)
@@ -71,13 +75,17 @@ export const useDownloadStore = defineStore('download', () => {
   }
 
   /** Active downloads (for progress polling) */
-  const activeJobs = () => jobs.value.filter((j) => j.status === 'downloading' || j.status === 'queued')
+  const activeJobs = () =>
+    jobs.value.filter((j) =>
+      j.status === 'downloading' || j.status === 'queued' || j.status === 'processing',
+    )
 
   return {
     jobs,
     schedules,
     loading,
     error,
+    replaceJobs,
     fetchJobs,
     fetchSchedules,
     createSchedule,

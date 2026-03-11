@@ -19,6 +19,18 @@ export interface OrganizePreviewItem {
   reason?: string
 }
 
+export interface InboxUploadFile {
+  file: File
+  relativePath?: string
+}
+
+export interface InboxUploadResult {
+  batch_name: string
+  source_path: string
+  file_count: number
+  total_bytes: number
+}
+
 export const libraryApi = {
   scan: () =>
     client.post<ApiResponse<{ message: string; task_id: string }>>('/library/scan').then((r) => r.data),
@@ -29,4 +41,20 @@ export const libraryApi = {
       mode,
       preview,
     }).then((r) => r.data),
+
+  uploadInbox: (files: InboxUploadFile[], batchName?: string) => {
+    const formData = new FormData()
+    if (batchName?.trim()) {
+      formData.append('batch_name', batchName.trim())
+    }
+
+    for (const entry of files) {
+      formData.append('files', entry.file, entry.file.name)
+      formData.append('paths', entry.relativePath?.trim() || entry.file.name)
+    }
+
+    return client.post<ApiResponse<InboxUploadResult>>('/library/inbox/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
 }

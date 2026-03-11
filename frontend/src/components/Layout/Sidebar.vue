@@ -59,7 +59,7 @@ const router = useRouter()
 
 const navItems = [
   { name: 'library',    to: '/',            icon: 'library',    label: 'Library'     },
-  { name: 'downloads',  to: '/downloads',   icon: 'download',   label: 'Downloads'   },
+  { name: 'capture',    to: '/capture',     icon: 'download',   label: 'Capture'     },
   { name: 'collections',to: '/collections', icon: 'collection', label: 'Collections' },
   { name: 'tags',       to: '/tags',        icon: 'tag',        label: 'Tags'        },
   { name: 'settings',   to: '/settings',    icon: 'settings',   label: 'Settings'    },

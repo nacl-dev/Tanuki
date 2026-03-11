@@ -56,6 +56,7 @@
             class="form-input"
             placeholder="Choose a password"
             required
+            minlength="8"
             autocomplete="new-password"
           />
         </div>

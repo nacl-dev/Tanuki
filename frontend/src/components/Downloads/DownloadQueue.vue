@@ -2,8 +2,11 @@
   <div class="download-queue">
     <div class="queue-header">
       <div class="queue-header__copy">
-        <h3>Queue</h3>
-        <p>{{ store.jobs.length }} job{{ store.jobs.length !== 1 ? 's' : '' }} tracked across active and finished downloads.</p>
+        <div class="queue-header__title">
+          <h3>Download Queue</h3>
+          <span :class="['queue-live', `queue-live--${liveStatus}`]">{{ liveLabel }}</span>
+        </div>
+        <p>{{ store.jobs.length }} job{{ store.jobs.length !== 1 ? 's' : '' }} tracked across active and finished link captures.</p>
       </div>
       <div class="queue-filters">
         <button
@@ -49,7 +52,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { downloadApi, type DownloadJob } from '@/api/downloadApi'
 import { useDownloadStore } from '@/stores/downloadStore'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import DownloadProgress from './DownloadProgress.vue'
@@ -81,45 +85,107 @@ const filtered = computed(() =>
 const activeCount = computed(() => store.jobs.filter((job) => ['queued', 'downloading', 'processing'].includes(job.status)).length)
 const completedCount = computed(() => store.jobs.filter((job) => job.status === 'completed').length)
 const failedCount = computed(() => store.jobs.filter((job) => job.status === 'failed').length)
-const shouldPoll = computed(() => store.activeJobs().length > 0)
+const liveStatus = ref<'connecting' | 'live' | 'fallback'>('connecting')
+const liveLabel = computed(() => {
+  switch (liveStatus.value) {
+    case 'live':
+      return 'Live'
+    case 'fallback':
+      return 'Polling fallback'
+    default:
+      return 'Connecting'
+  }
+})
 
 function setFilter(v: string) {
   activeFilter.value = v
 }
 
-onMounted(() => { store.fetchJobs() })
+let eventSource: EventSource | null = null
+let fallbackInterval: ReturnType<typeof setInterval> | null = null
 
-let interval: ReturnType<typeof setInterval> | null = null
-
-function startPolling() {
-  if (interval) return
-  interval = setInterval(() => store.fetchJobs(undefined, { silent: true }), 3000)
+function startFallbackPolling() {
+  if (fallbackInterval) return
+  fallbackInterval = setInterval(() => store.fetchJobs(undefined, { silent: true }), 4000)
 }
 
-function stopPolling() {
-  if (!interval) return
-  clearInterval(interval)
-  interval = null
+function stopFallbackPolling() {
+  if (!fallbackInterval) return
+  clearInterval(fallbackInterval)
+  fallbackInterval = null
 }
 
-watch(shouldPoll, (active) => {
-  if (active) {
-    startPolling()
-  } else {
-    stopPolling()
+function startLiveStream() {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+    liveStatus.value = 'fallback'
+    startFallbackPolling()
+    return
   }
-}, { immediate: true })
 
-onUnmounted(() => stopPolling())
+  eventSource = new EventSource(downloadApi.streamUrl())
+  eventSource.onopen = () => {
+    liveStatus.value = 'live'
+    stopFallbackPolling()
+  }
+  eventSource.onmessage = (event) => {
+    try {
+      store.replaceJobs(JSON.parse(event.data) as DownloadJob[])
+    } catch {
+      // Ignore malformed frames and wait for the next snapshot.
+    }
+  }
+  eventSource.onerror = () => {
+    liveStatus.value = 'fallback'
+    startFallbackPolling()
+  }
+}
+
+function stopLiveStream() {
+  if (!eventSource) return
+  eventSource.close()
+  eventSource = null
+}
+
+onMounted(async () => {
+  await store.fetchJobs()
+  startLiveStream()
+})
+
+onUnmounted(() => {
+  stopFallbackPolling()
+  stopLiveStream()
+})
 </script>
 
 <style scoped>
 .download-queue { display: flex; flex-direction: column; gap: 12px; }
 .queue-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .queue-header__copy { display: flex; flex-direction: column; gap: 4px; }
+.queue-header__title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .queue-header h3 { font-size: 15px; font-weight: 600; }
 .queue-header p { font-size: 12px; color: var(--text-muted); }
 .queue-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.queue-live {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.queue-live--live {
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #4ade80;
+}
+.queue-live--fallback {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f0b35b;
+}
 .queue-summary { display: flex; gap: 8px; flex-wrap: wrap; }
 .queue-summary__chip {
   display: inline-flex;

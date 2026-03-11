@@ -2,20 +2,17 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { authApi, type User } from '@/api/authApi'
 
-const TOKEN_KEY = 'tanuki_token'
-
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
-  const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
+  const hydrated = ref(false)
 
-  const isAuthenticated = computed(() => !!token.value && !!user.value)
+  const isAuthenticated = computed(() => !!user.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
 
   async function login(username: string, password: string) {
     const data = await authApi.login({ username, password })
-    token.value = data.token
     user.value = data.user
-    localStorage.setItem(TOKEN_KEY, data.token)
+    hydrated.value = true
   }
 
   async function register(input: {
@@ -33,17 +30,17 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     void authApi.logout().catch(() => {})
     user.value = null
-    token.value = null
-    localStorage.removeItem(TOKEN_KEY)
+    hydrated.value = true
   }
 
-  async function fetchMe() {
-    if (!token.value) return
+  async function fetchMe(force = false) {
+    if (hydrated.value && !force) return
     try {
       user.value = await authApi.me()
     } catch {
-      // Token is invalid or expired – clear it
-      logout()
+      user.value = null
+    } finally {
+      hydrated.value = true
     }
   }
 
@@ -55,7 +52,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user,
-    token,
+    hydrated,
     isAuthenticated,
     isAdmin,
     login,

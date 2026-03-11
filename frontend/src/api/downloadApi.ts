@@ -42,6 +42,14 @@ export const downloadApi = {
   list: (status?: string) =>
     client.get<ApiResponse<DownloadJob[]>>('/downloads', { params: { status } }).then((r) => r.data),
 
+  streamUrl: (status?: string) => {
+    const params = new URLSearchParams()
+    if (status) {
+      params.set('status', status)
+    }
+    return params.size > 0 ? `/api/downloads/stream?${params.toString()}` : '/api/downloads/stream'
+  },
+
   get: (id: string) =>
     client.get<ApiResponse<DownloadJob>>(`/downloads/${id}`).then((r) => r.data),
 

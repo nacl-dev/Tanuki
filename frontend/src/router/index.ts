@@ -33,8 +33,9 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/downloads',
-      name: 'downloads',
+      path: '/capture',
+      alias: ['/downloads'],
+      name: 'capture',
       component: () => import('@/pages/DownloadsPage.vue'),
       meta: { requiresAuth: true },
     },
@@ -75,8 +76,7 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
 
-  // Wait for the store to finish rehydrating on first load
-  if (authStore.token && !authStore.user) {
+  if (!authStore.hydrated) {
     await authStore.fetchMe()
   }
 

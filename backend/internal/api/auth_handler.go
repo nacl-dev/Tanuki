@@ -53,21 +53,14 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if len(req.Password) < 8 {
+		respondError(c, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
 
 	if !h.cfg.RegistrationEnabled {
 		respondError(c, http.StatusForbidden, "registration is disabled")
 		return
-	}
-
-	// Determine role: first user becomes admin.
-	role := models.RoleUser
-	var count int
-	if err := h.db.Get(&count, `SELECT COUNT(*) FROM users`); err != nil {
-		respondError(c, http.StatusInternalServerError, "database error")
-		return
-	}
-	if count == 0 {
-		role = models.RoleAdmin
 	}
 
 	hash, err := auth.HashPassword(req.Password)
@@ -76,8 +69,32 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	tx, err := h.db.Beginx()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Serialize first-user bootstrap so parallel registrations cannot both
+	// become admins.
+	if _, err := tx.Exec(`LOCK TABLE users IN EXCLUSIVE MODE`); err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
+		return
+	}
+
+	role := models.RoleUser
+	var count int
+	if err := tx.Get(&count, `SELECT COUNT(*) FROM users`); err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
+		return
+	}
+	if count == 0 {
+		role = models.RoleAdmin
+	}
+
 	var user models.User
-	err = h.db.QueryRowx(`
+	err = tx.QueryRowx(`
 		INSERT INTO users (username, email, password_hash, display_name, role)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
@@ -87,6 +104,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			respondError(c, http.StatusConflict, "username or email already taken")
 			return
 		}
+		respondError(c, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		respondError(c, http.StatusInternalServerError, "failed to create user")
 		return
 	}
@@ -294,16 +315,64 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 // DELETE /api/admin/users/:id
 func (h *AuthHandler) DeleteUser(c *gin.Context) {
 	id := c.Param("id")
+	currentUserID := c.GetString("userID")
 
-	result, err := h.db.Exec(`DELETE FROM users WHERE id = $1`, id)
+	if id == currentUserID {
+		respondError(c, http.StatusConflict, "cannot delete your own account")
+		return
+	}
+
+	tx, err := h.db.Beginx()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "database error")
 		return
 	}
+	defer tx.Rollback() //nolint:errcheck
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	var user models.User
+	if err := tx.Get(&user, `
+		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		FROM users
+		WHERE id = $1
+	`, id); err != nil {
 		respondError(c, http.StatusNotFound, "user not found")
+		return
+	}
+
+	if user.Role == models.RoleAdmin {
+		var adminCount int
+		if err := tx.Get(&adminCount, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE`); err != nil {
+			respondError(c, http.StatusInternalServerError, "database error")
+			return
+		}
+		if adminCount <= 1 {
+			respondError(c, http.StatusConflict, "cannot delete the last active admin")
+			return
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM collections WHERE user_id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "delete collections: "+err.Error())
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM download_jobs WHERE user_id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "delete download jobs: "+err.Error())
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM download_schedules WHERE user_id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "delete schedules: "+err.Error())
+		return
+	}
+	if _, err := tx.Exec(`UPDATE media SET owner_id = NULL WHERE owner_id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "release media ownership: "+err.Error())
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM users WHERE id = $1`, id); err != nil {
+		respondError(c, http.StatusInternalServerError, "delete user: "+err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(c, http.StatusInternalServerError, "database error")
 		return
 	}
 

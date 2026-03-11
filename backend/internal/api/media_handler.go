@@ -370,7 +370,7 @@ func (h *MediaHandler) ServeFile(c *gin.Context) {
 		return
 	}
 
-	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Cache-Control", "private, max-age=86400")
 	c.File(filePath)
 }
 
@@ -430,7 +430,7 @@ func (h *MediaHandler) ServeThumbnail(c *gin.Context) {
 		}
 	}
 
-	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Cache-Control", "private, max-age=86400")
 	c.File(thumbnailPath)
 }
 
@@ -663,7 +663,7 @@ func (h *MediaHandler) ServePage(c *gin.Context) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(item.FilePath))
-	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Cache-Control", "private, max-age=86400")
 
 	archivePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
 	if err != nil {

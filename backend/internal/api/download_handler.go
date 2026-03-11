@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,29 +24,24 @@ func (h *DownloadHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	userID := c.GetString("userID")
 
-	var jobs []models.DownloadJob
-	var err error
-
-	if status != "" {
-		err = h.db.Select(&jobs, `
-			SELECT * FROM download_jobs
-			WHERE status = $1 AND (user_id = $2 OR user_id IS NULL)
-			ORDER BY created_at DESC
-		`, status, userID)
-	} else {
-		err = h.db.Select(&jobs, `
-			SELECT * FROM download_jobs
-			WHERE user_id = $1 OR user_id IS NULL
-			ORDER BY created_at DESC
-		`, userID)
-	}
-
+	jobs, err := h.listForUser(userID, status)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "query downloads: "+err.Error())
 		return
 	}
 
 	respondOK(c, jobs, &Meta{Total: len(jobs)})
+}
+
+// Stream emits the current download job list whenever it changes.
+// GET /api/downloads/stream
+func (h *DownloadHandler) Stream(c *gin.Context) {
+	status := c.Query("status")
+	userID := c.GetString("userID")
+
+	streamJSON(c, time.Second, func() (any, error) {
+		return h.listForUser(userID, status)
+	})
 }
 
 // Create enqueues a new download job.
@@ -250,4 +246,25 @@ func stringPtr(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+func (h *DownloadHandler) listForUser(userID, status string) ([]models.DownloadJob, error) {
+	var jobs []models.DownloadJob
+	var err error
+
+	if status != "" {
+		err = h.db.Select(&jobs, `
+			SELECT * FROM download_jobs
+			WHERE status = $1 AND (user_id = $2 OR user_id IS NULL)
+			ORDER BY created_at DESC
+		`, status, userID)
+	} else {
+		err = h.db.Select(&jobs, `
+			SELECT * FROM download_jobs
+			WHERE user_id = $1 OR user_id IS NULL
+			ORDER BY created_at DESC
+		`, userID)
+	}
+
+	return jobs, err
 }

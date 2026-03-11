@@ -49,6 +49,11 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	cronExpression, nextRun, err := downloader.ValidateCronExpression(body.CronExpression)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid cron expression")
+		return
+	}
 	targetDirectory, err := downloader.NormalizeTargetDirectory(body.TargetDirectory, h.downloadsDir, h.mediaPath)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
@@ -58,9 +63,9 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 	id := uuid.NewString()
 	if _, err := h.db.Exec(`
 		INSERT INTO download_schedules
-			(id, user_id, name, url_pattern, source_type, cron_expression, enabled, target_directory)
-		VALUES ($1, $2, $3, $4, $5, $6, true, $7)
-	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, body.CronExpression, targetDirectory); err != nil {
+			(id, user_id, name, url_pattern, source_type, cron_expression, enabled, target_directory, next_run)
+		VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)
+	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, cronExpression, targetDirectory, nextRun); err != nil {
 		respondError(c, http.StatusInternalServerError, "create schedule: "+err.Error())
 		return
 	}
@@ -93,6 +98,16 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	var current models.DownloadSchedule
+	if err := h.db.Get(&current, `
+		SELECT * FROM download_schedules
+		WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+	`, id, userID); err != nil {
+		respondError(c, http.StatusNotFound, "schedule not found")
+		return
+	}
+
 	var targetDirectory any
 	if body.TargetDirectory != nil {
 		normalizedTargetDirectory, err := downloader.NormalizeTargetDirectory(*body.TargetDirectory, h.downloadsDir, h.mediaPath)
@@ -103,15 +118,38 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 		targetDirectory = normalizedTargetDirectory
 	}
 
+	cronExpression := current.CronExpression
+	if body.CronExpression != nil {
+		normalized, _, err := downloader.ValidateCronExpression(*body.CronExpression)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "invalid cron expression")
+			return
+		}
+		cronExpression = normalized
+	}
+
+	enabled := current.Enabled
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	var nextRun any
+	if enabled {
+		_, computedNextRun, err := downloader.ValidateCronExpression(cronExpression)
+		if err == nil {
+			nextRun = computedNextRun
+		}
+	}
+
 	if _, err := h.db.Exec(`
 		UPDATE download_schedules SET
 			name            = COALESCE($2, name),
 			cron_expression = COALESCE($3, cron_expression),
 			enabled         = COALESCE($4, enabled),
 			target_directory = COALESCE($5, target_directory),
+			next_run        = $6,
 			updated_at      = NOW()
-		WHERE id = $1 AND (user_id = $6 OR user_id IS NULL)
-	`, id, body.Name, body.CronExpression, body.Enabled, targetDirectory, userID); err != nil {
+		WHERE id = $1 AND (user_id = $7 OR user_id IS NULL)
+	`, id, body.Name, cronExpression, body.Enabled, targetDirectory, nextRun, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "update schedule: "+err.Error())
 		return
 	}

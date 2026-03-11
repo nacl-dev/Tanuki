@@ -44,6 +44,7 @@ type IconName =
   | 'image'
   | 'book'
   | 'link'
+  | 'upload'
   | 'check'
   | 'spark'
   | 'play'
@@ -84,6 +85,7 @@ const icons: Record<IconName, { stroke?: string[]; fill?: string[] }> = {
   image: { stroke: ['M4 6A2 2 0 0 1 6 4H18A2 2 0 0 1 20 6V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V6Z', 'M8.5 10A1.5 1.5 0 1 0 8.5 7A1.5 1.5 0 0 0 8.5 10Z', 'M5 17L10.5 11.5L14 15L16.5 12.5L19 15'] },
   book: { stroke: ['M6 5.5A2.5 2.5 0 0 1 8.5 3H18V19H8.5A2.5 2.5 0 0 0 6 21V5.5Z', 'M6 5.5A2.5 2.5 0 0 0 3.5 8V19H18', 'M9 7H15'] },
   link: { stroke: ['M10 14L14 10', 'M7.5 16.5L5.5 18.5A3 3 0 0 1 1.26 14.26L3.26 12.26A3 3 0 0 1 7.5 12', 'M16.5 7.5L18.5 5.5A3 3 0 0 1 22.74 9.74L20.74 11.74A3 3 0 0 1 16.5 12'] },
+  upload: { stroke: ['M12 20V9', 'M7.5 13.5L12 9L16.5 13.5', 'M5 4H19'] },
   check: { stroke: ['M5 12.5L9.5 17L19 7.5'] },
   spark: { stroke: ['M12 3L13.9 8.1L19 10L13.9 11.9L12 17L10.1 11.9L5 10L10.1 8.1L12 3Z'] },
   play: { stroke: ['M8 6L18 12L8 18V6Z'] },

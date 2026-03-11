@@ -269,7 +269,13 @@ func (h *CollectionHandler) ListForMedia(c *gin.Context) {
 	var collections []models.Collection
 	if err := h.db.Select(&collections, `
 		SELECT c.*, CASE WHEN EXISTS (
-			SELECT 1 FROM media_collections cm WHERE cm.collection_id = c.id AND cm.media_id = $2
+			SELECT 1
+			FROM media m
+			LEFT JOIN media_collections cm
+				ON cm.media_id = m.id AND cm.collection_id = c.id
+			WHERE m.id = $2
+				AND m.deleted_at IS NULL
+				AND (`+collectionMatchPredicateSQL+`)
 		) THEN 1 ELSE 0 END AS item_count
 		FROM collections c
 		WHERE c.user_id = $1 OR c.user_id IS NULL

@@ -22,7 +22,7 @@
           </span>
         </div>
 
-        <div v-if="info" class="setting-list">
+        <div v-if="info?.runtime_details_visible" class="setting-list">
           <div class="setting-row">
             <div>
               <p class="setting-name">Media Path</p>
@@ -52,6 +52,9 @@
             <span class="setting-value">{{ info.scan_interval }}s</span>
           </div>
         </div>
+        <div v-else-if="info" class="panel-empty">
+          Runtime paths and scanner configuration are visible to admin accounts only.
+        </div>
         <div v-else-if="loadError" class="panel-error">{{ loadError }}</div>
         <div v-else class="panel-empty">Loading runtime information…</div>
 
@@ -66,7 +69,7 @@
           </div>
         </div>
 
-        <div v-if="info" class="setting-list">
+        <div v-if="info?.runtime_details_visible" class="setting-list">
           <div class="setting-row">
             <div>
               <p class="setting-name">Downloads Path</p>
@@ -88,6 +91,9 @@
             </div>
             <span class="setting-value">{{ info.rate_limit_delay }}ms</span>
           </div>
+        </div>
+        <div v-else-if="info" class="panel-empty">
+          Download runtime configuration is visible to admin accounts only.
         </div>
       </section>
 
@@ -195,7 +201,7 @@
       </section>
     </div>
 
-    <section v-if="info" class="card settings-card">
+    <section v-if="info?.runtime_details_visible" class="card settings-card">
       <div class="card-head">
         <div>
           <h3>Path Health</h3>

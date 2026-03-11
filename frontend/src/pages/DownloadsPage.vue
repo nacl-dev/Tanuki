@@ -2,14 +2,15 @@
   <div class="downloads-page">
     <section class="downloads-hero card">
       <div>
-        <span class="downloads-hero__eyebrow">Downloads</span>
-        <h2 class="page-title">Capture new items without leaving the queue behind.</h2>
-        <p class="page-copy">Form and schedules stay together, while the active queue gets the wider reading area.</p>
+        <span class="downloads-hero__eyebrow">Capture</span>
+        <h2 class="page-title">Bring in new items from links, schedules, or direct uploads.</h2>
+        <p class="page-copy">Queue remote grabs, drop local files into the inbox from another machine, and hand the batch off to organize without leaving this page.</p>
       </div>
     </section>
 
     <div class="downloads-layout">
       <div class="downloads-sidebar">
+        <InboxDropzone />
         <DownloadForm />
         <ScheduleManager />
       </div>
@@ -24,6 +25,7 @@
 <script setup lang="ts">
 import DownloadForm from '@/components/Downloads/DownloadForm.vue'
 import DownloadQueue from '@/components/Downloads/DownloadQueue.vue'
+import InboxDropzone from '@/components/Downloads/InboxDropzone.vue'
 import ScheduleManager from '@/components/Downloads/ScheduleManager.vue'
 </script>
 

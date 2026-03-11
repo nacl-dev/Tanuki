@@ -138,6 +138,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			downloads := protected.Group("/downloads")
 			{
 				downloads.GET("", dldh.List)
+				downloads.GET("/stream", dldh.Stream)
 				downloads.POST("", dldh.Create)
 				downloads.POST("/batch", dldh.Batch)
 				downloads.GET("/:id", dldh.Get)
@@ -166,9 +167,11 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			}
 			protected.POST("/library/scan", lh.Scan)
 			protected.POST("/library/organize", lh.Organize)
+			protected.POST("/library/inbox/upload", lh.UploadInbox)
 
 			taskH := newTaskHandler(taskManager)
 			protected.GET("/tasks", taskH.List)
+			protected.GET("/tasks/stream", taskH.Stream)
 			protected.GET("/tasks/:id", taskH.Get)
 
 			// Duplicates (v0.5)
@@ -193,6 +196,7 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 
 			// System info (v1.0)
 			protected.GET("/system/info", func(c *gin.Context) {
+				isAdmin := c.GetString("role") == "admin"
 				var mediaCount int
 				_ = db.Get(&mediaCount, `SELECT COUNT(*) FROM media WHERE deleted_at IS NULL`)
 				var pluginCount int
@@ -218,36 +222,42 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 					"inbox":      pathStatus(cfg.InboxPath),
 				}
 				taskSummary := taskManager.Summary()
-				respondOK(c, gin.H{
-					"version":                  "1.0.0",
-					"media_count":              mediaCount,
-					"plugin_count":             pluginCount,
-					"downloads_total":          downloadsTotal,
-					"downloads_active":         downloadsActive,
-					"downloads_failed":         downloadsFailed,
-					"schedules_total":          schedulesTotal,
-					"schedules_enabled":        schedulesEnabled,
-					"autotag_pending":          autoTagPending,
-					"background_tasks_active":  taskSummary.Active,
-					"background_tasks_failed":  taskSummary.Failed,
-					"last_completed_download":  lastCompletedDownload,
-					"media_path":               cfg.MediaPath,
-					"downloads_path":           cfg.DownloadsPath,
-					"thumbnails_path":          cfg.ThumbnailsPath,
-					"inbox_path":               cfg.InboxPath,
-					"path_health":              pathHealth,
-					"scan_interval":            cfg.ScanInterval,
-					"max_concurrent_downloads": cfg.MaxConcurrentDownloads,
-					"rate_limit_delay":         cfg.RateLimitDelay,
-					"plugins_enabled":          cfg.PluginsEnabled,
-					"registration_enabled":     cfg.RegistrationEnabled,
-					"library_scope":            "shared",
-					"tag_scope":                "shared",
-					"collection_scope":         "personal",
-					"download_scope":           "personal",
-					"schedule_scope":           "personal",
-					"owner_mode":               "shared_library_owner_id_unused",
-				}, nil)
+				payload := gin.H{
+					"version":                 "1.0.0",
+					"media_count":             mediaCount,
+					"plugin_count":            pluginCount,
+					"downloads_total":         downloadsTotal,
+					"downloads_active":        downloadsActive,
+					"downloads_failed":        downloadsFailed,
+					"schedules_total":         schedulesTotal,
+					"schedules_enabled":       schedulesEnabled,
+					"autotag_pending":         autoTagPending,
+					"background_tasks_active": taskSummary.Active,
+					"background_tasks_failed": taskSummary.Failed,
+					"last_completed_download": lastCompletedDownload,
+					"plugins_enabled":         cfg.PluginsEnabled,
+					"registration_enabled":    cfg.RegistrationEnabled,
+					"runtime_details_visible": isAdmin,
+					"library_scope":           "shared",
+					"tag_scope":               "shared",
+					"collection_scope":        "personal",
+					"download_scope":          "personal",
+					"schedule_scope":          "personal",
+					"owner_mode":              "shared_library_owner_id_unused",
+				}
+				if isAdmin {
+					payload["media_path"] = cfg.MediaPath
+					payload["downloads_path"] = cfg.DownloadsPath
+					payload["thumbnails_path"] = cfg.ThumbnailsPath
+					payload["inbox_path"] = cfg.InboxPath
+					payload["path_health"] = pathHealth
+					payload["scan_interval"] = cfg.ScanInterval
+					payload["max_concurrent_downloads"] = cfg.MaxConcurrentDownloads
+					payload["rate_limit_delay"] = cfg.RateLimitDelay
+				} else {
+					payload["path_health"] = gin.H{}
+				}
+				respondOK(c, payload, nil)
 			})
 		}
 

@@ -21,16 +21,17 @@ export interface SystemInfo {
   background_tasks_active: number
   background_tasks_failed: number
   last_completed_download?: string | null
-  media_path: string
-  downloads_path: string
-  thumbnails_path: string
-  inbox_path: string
+  media_path?: string
+  downloads_path?: string
+  thumbnails_path?: string
+  inbox_path?: string
   path_health: Record<string, PathHealth>
-  scan_interval: number
-  max_concurrent_downloads: number
-  rate_limit_delay: number
+  scan_interval?: number
+  max_concurrent_downloads?: number
+  rate_limit_delay?: number
   plugins_enabled: boolean
   registration_enabled: boolean
+  runtime_details_visible: boolean
   library_scope: string
   tag_scope: string
   collection_scope: string

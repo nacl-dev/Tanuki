@@ -232,16 +232,9 @@ func resolveLibraryPath(mediaRoot, inboxRoot, raw string) (string, error) {
 	if strings.TrimSpace(inboxRoot) != "" {
 		allowedRoots = append(allowedRoots, inboxRoot)
 	}
-
-	insideAllowedRoot := false
-	for _, root := range allowedRoots {
-		rel, err := filepath.Rel(root, candidate)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			insideAllowedRoot = true
-			break
-		}
-	}
-	if !insideAllowedRoot {
+	var err error
+	candidate, err = ensureManagedPath(candidate, allowedRoots...)
+	if err != nil {
 		return "", fmt.Errorf("source_path must stay inside /media or /inbox")
 	}
 

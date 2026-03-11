@@ -7,6 +7,7 @@
         <p>Global maintenance actions live here now instead of floating across every page.</p>
       </div>
       <div class="library-hero__actions">
+        <span :class="['task-live-indicator', `task-live-indicator--${taskLiveStatus}`]">{{ taskLiveLabel }}</span>
         <button class="btn btn-ghost" :disabled="tagging" @click="runBatchAutoTag">
           {{ tagging ? 'Queueing…' : 'Auto-tag Untagged' }}
         </button>
@@ -234,7 +235,19 @@ const tasks = ref<BackgroundTask[]>([])
 const hadActiveTasks = ref(false)
 const gridDensity = ref<'cozy' | 'compact'>('cozy')
 const continueExpanded = ref(false)
-let taskPollTimer: number | null = null
+const taskLiveStatus = ref<'connecting' | 'live' | 'fallback'>('connecting')
+const taskLiveLabel = computed(() => {
+  switch (taskLiveStatus.value) {
+    case 'live':
+      return 'Tasks live'
+    case 'fallback':
+      return 'Task polling fallback'
+    default:
+      return 'Connecting tasks'
+  }
+})
+let taskFallbackTimer: number | null = null
+let taskStream: EventSource | null = null
 
 const types = [
   { value: '', label: 'All' },
@@ -393,46 +406,76 @@ function formatTaskKind(kind: string) {
   }
 }
 
-function stopTaskPolling() {
-  if (taskPollTimer !== null) {
-    window.clearInterval(taskPollTimer)
-    taskPollTimer = null
-  }
-}
-
 function setGridDensity(next: 'cozy' | 'compact') {
   gridDensity.value = next
   window.localStorage.setItem('tanuki_grid_density', next)
 }
 
-function ensureTaskPolling() {
-  if (taskPollTimer !== null) return
-  taskPollTimer = window.setInterval(() => {
+function ensureTaskFallbackPolling() {
+  if (taskFallbackTimer !== null) return
+  taskFallbackTimer = window.setInterval(() => {
     void loadTasks()
   }, 4000)
 }
 
-async function loadTasks() {
-  let nextTasks: BackgroundTask[] = []
-  try {
-    nextTasks = await taskApi.list(8)
-  } catch {
-    stopTaskPolling()
+function stopTaskFallbackPolling() {
+  if (taskFallbackTimer !== null) {
+    window.clearInterval(taskFallbackTimer)
+    taskFallbackTimer = null
+  }
+}
+
+function startTaskStream() {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+    taskLiveStatus.value = 'fallback'
+    ensureTaskFallbackPolling()
     return
   }
+
+  taskStream = new EventSource(taskApi.streamUrl(8))
+  taskStream.onopen = () => {
+    taskLiveStatus.value = 'live'
+    stopTaskFallbackPolling()
+  }
+  taskStream.onmessage = (event) => {
+    try {
+      void applyTasks(JSON.parse(event.data) as BackgroundTask[])
+    } catch {
+      // Ignore malformed frames and wait for the next snapshot.
+    }
+  }
+  taskStream.onerror = () => {
+    taskLiveStatus.value = 'fallback'
+    ensureTaskFallbackPolling()
+  }
+}
+
+function stopTaskStream() {
+  if (taskStream === null) return
+  taskStream.close()
+  taskStream = null
+}
+
+async function applyTasks(nextTasks: BackgroundTask[]) {
   tasks.value = nextTasks
 
   const hasActiveTasks = nextTasks.some((task) => task.status === 'queued' || task.status === 'running')
   if (hasActiveTasks) {
     hadActiveTasks.value = true
-    ensureTaskPolling()
     return
   }
 
-  stopTaskPolling()
   if (hadActiveTasks.value) {
     hadActiveTasks.value = false
     await refreshLibrarySurfaces()
+  }
+}
+
+async function loadTasks() {
+  try {
+    await applyTasks(await taskApi.list(8))
+  } catch {
+    return
   }
 }
 
@@ -498,11 +541,14 @@ onMounted(() => {
   }
   void loadCollections()
   void loadQuickShelves()
-  void loadTasks()
+  void loadTasks().finally(() => {
+    startTaskStream()
+  })
 })
 
 onBeforeUnmount(() => {
-  stopTaskPolling()
+  stopTaskFallbackPolling()
+  stopTaskStream()
 })
 
 watch(
@@ -650,6 +696,30 @@ watch(
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.task-live-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.task-live-indicator--live {
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #4ade80;
+}
+
+.task-live-indicator--fallback {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f0b35b;
 }
 
 .filter-bar {

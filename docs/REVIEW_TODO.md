@@ -4,6 +4,47 @@ Stand: 2026-03-11
 
 Diese Liste fasst alle Findings aus der Projekt-Review in eine priorisierte, umsetzbare ToDo zusammen.
 
+## Follow-up TODO (Single-User First, Multi-User Safe)
+
+- [x] Schedule-Handling verlässlich machen.
+  Cron-Ausdrücke sofort validieren, 5-Feld-Format konsistent unterstützen und den Downloader laufend gegen DB-Änderungen synchronisieren statt nur beim Start.
+
+- [x] First-user-Admin-Race bei der Registrierung schließen.
+  Admin-Bootstrap in eine transaktionale, serialisierte DB-Operation legen.
+
+- [x] Passwort-Regeln vereinheitlichen.
+  Registrierung und Profil-Update sollen dieselbe Mindestlänge erzwingen; Frontend-Formular soll das direkt spiegeln.
+
+- [x] Task-API auf den anfordernden User begrenzen.
+  `/api/tasks` und `/api/tasks/:id` dürfen keine fremden Jobs und Metadaten mehr offenlegen.
+
+- [x] Symlink-Escapes in Managed Paths verhindern.
+  Pfade und Roots kanonisch auflösen statt nur lexikalisch per `filepath.Rel(...)` zu prüfen.
+
+- [x] Geschützte Media-Responses privat cachen.
+  Dateien, Thumbnails und Archive-Seiten nicht mehr mit `Cache-Control: public` ausliefern.
+
+- [x] Smart-Collections auf der Detailseite korrekt anzeigen.
+  `ListForMedia` muss Auto-Regeln genauso berücksichtigen wie manuelle Collection-Zuordnungen.
+
+- [x] Download-Queue während `processing` weiter pollen.
+  Aktive Jobs im Frontend nicht nur als `queued` oder `downloading` behandeln.
+
+- [x] Auth-Session auf Cookie-first umstellen.
+  Browser-Storage für JWT entfernen und die Session-Hydrierung über `/auth/me` + HttpOnly-Cookie abwickeln.
+
+- [x] Suche und Collection-Auswahl robuster machen.
+  Veraltete Async-Responses ignorieren und globale Suche bei Enter zuverlässig zur Library führen.
+
+- [x] System-Info für Nicht-Admins entschärfen.
+  Absolute Pfade, Writability und ähnliche Runtime-Details nicht jedem eingeloggten User offenlegen.
+
+- [x] User-Löschung mit abhängigen Datensätzen sauber lösen.
+  Entweder Soft-Delete/Deaktivierung oder transaktionales Reassign/Cleanup für Collections, Jobs und Schedules.
+
+- [ ] Optional als nächster Produkthebel: Live-Updates per SSE/WebSocket.
+  Downloads und Background-Tasks statt Polling in Echtzeit pushen.
+
 ## Must Fix
 
 - [x] `target_directory` und Schedule-Zielpfade auf erlaubte Roots begrenzen.

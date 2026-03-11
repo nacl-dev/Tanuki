@@ -6,12 +6,12 @@
           <div class="sm-header__icon">
             <AppIcon name="refresh" :size="16" />
           </div>
-          <h3>Schedules</h3>
+          <h3>Recurring Sources</h3>
         </div>
-        <p>Repeat trusted sources on a simple cadence and keep them in the same queue.</p>
+        <p>Repeat trusted sources on a simple cadence and keep them in the same capture flow.</p>
       </div>
       <button type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">
-        {{ showForm ? 'Close' : 'New Schedule' }}
+        {{ showForm ? 'Close' : 'New Source' }}
       </button>
     </div>
 

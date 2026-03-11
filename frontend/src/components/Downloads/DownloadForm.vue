@@ -5,7 +5,7 @@
         <AppIcon name="download" :size="18" />
       </div>
       <div>
-        <h3 class="form-title">Add Download</h3>
+        <h3 class="form-title">Link Capture</h3>
         <p class="form-copy">Queue a single URL or paste a batch of links into the same target root.</p>
       </div>
     </div>
@@ -34,7 +34,7 @@
 
     <div class="form-row">
       <button type="button" class="btn btn-primary" :disabled="!url || loading" @click="submit">
-        {{ loading ? 'Adding…' : 'Add Download' }}
+        {{ loading ? 'Adding...' : 'Add Link' }}
       </button>
       <button type="button" class="btn btn-ghost" @click="openBatch">
         {{ batchMode ? 'Hide Batch' : 'Paste Batch' }}
