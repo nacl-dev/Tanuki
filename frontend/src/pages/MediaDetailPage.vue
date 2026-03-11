@@ -47,7 +47,11 @@
     <!-- Body -->
     <div class="detail-body">
       <!-- Preview -->
-      <div class="detail-preview">
+      <div
+        ref="detailPreview"
+        class="detail-preview"
+        :class="{ 'detail-preview--fullscreen': isImageFullscreen }"
+      >
         <VideoPlayer
           v-if="media.type === 'video'"
           :src="mediaAssetUrl(media.id, 'file')"
@@ -63,6 +67,16 @@
           class="media-image"
           @error="onImgError"
         />
+        <button
+          v-if="media.type === 'image' && !imgError"
+          type="button"
+          class="detail-preview__fullscreen-btn"
+          :aria-label="isImageFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
+          :title="isImageFullscreen ? 'Exit Fullscreen' : 'Fullscreen'"
+          @click="toggleImageFullscreen"
+        >
+          <AppIcon :name="isImageFullscreen ? 'collapse' : 'expand'" :size="16" />
+        </button>
         <!-- Archive preview + read button -->
         <div v-else-if="isArchive && pages" class="archive-preview">
           <img
@@ -354,7 +368,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { mediaApi, mediaAssetUrl, mediaPageUrl, type Media, type PagesResponse } from '@/api/mediaApi'
 import { autotagApi, type AutoTagResult, type SuggestedTag } from '@/api/autotagApi'
@@ -377,6 +391,8 @@ const { pushNotice } = useNoticeStore()
 const media = ref<Media | null>(null)
 const loading = ref(true)
 const imgError = ref(false)
+const detailPreview = ref<HTMLElement | null>(null)
+const isImageFullscreen = ref(false)
 const pages = ref<PagesResponse | null>(null)
 const showReader = ref(false)
 const readerStartPage = ref(0)
@@ -463,7 +479,12 @@ watch(() => route.params.id, (id) => {
 }, { immediate: true })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onImageFullscreenChange)
   void flushPendingProgress()
+})
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onImageFullscreenChange)
 })
 
 async function loadMediaDetail(id: string) {
@@ -682,6 +703,27 @@ function onImgError() {
   imgError.value = true
 }
 
+async function toggleImageFullscreen() {
+  const el = detailPreview.value
+  if (!el) return
+
+  try {
+    if (document.fullscreenElement === el) {
+      await document.exitFullscreen()
+      return
+    }
+
+    await el.requestFullscreen()
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Fullscreen is not available'
+    pushNotice({ type: 'error', message: msg })
+  }
+}
+
+function onImageFullscreenChange() {
+  isImageFullscreen.value = document.fullscreenElement === detailPreview.value
+}
+
 function openReader(startPage?: number) {
   if (!pages.value || !media.value) return
   const nextStartPage = startPage ?? media.value.read_progress ?? 0
@@ -828,8 +870,18 @@ function isArchiveType(type: Media['type']) {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: min(78vh, 960px);
   min-height: min(78vh, 960px);
   max-height: min(78vh, 960px);
+}
+
+.detail-preview--fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  padding: 24px;
+  background: #050505;
 }
 
 .detail-preview :deep(.vp-container) {
@@ -838,7 +890,36 @@ function isArchiveType(type: Media['type']) {
   max-height: 100%;
 }
 
-.media-image { width: 100%; height: auto; display: block; }
+.detail-preview__fullscreen-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.detail-preview__fullscreen-btn:hover {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.media-image {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  display: block;
+  object-fit: contain;
+}
 .media-placeholder { padding: 80px; text-align: center; color: var(--text-muted); font-size: 32px; }
 
 .archive-preview {
@@ -1098,6 +1179,83 @@ function isArchiveType(type: Media['type']) {
 }
 
 .dup-warning:hover { background: rgba(245, 158, 11, 0.1); }
+
+@media (max-width: 960px) {
+  .detail-body {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .detail-preview {
+    width: 100%;
+    height: min(60vh, 460px);
+    min-height: min(60vh, 460px);
+    max-height: min(60vh, 460px);
+  }
+
+  .detail-meta {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .detail-header,
+  .edit-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-nav,
+  .edit-actions,
+  .thumbnail-actions,
+  .rating-actions {
+    width: 100%;
+  }
+
+  .header-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .header-nav .btn,
+  .edit-actions .btn,
+  .thumbnail-actions .btn,
+  .rating-actions .btn,
+  .autotag-btn,
+  .read-btn-secondary {
+    justify-content: center;
+  }
+
+  .header-nav .btn {
+    width: auto;
+  }
+
+  .edit-actions .btn,
+  .thumbnail-actions .btn,
+  .rating-actions .btn,
+  .autotag-btn,
+  .read-btn-secondary {
+    width: 100%;
+  }
+
+  .detail-preview {
+    height: min(52vh, 360px);
+    min-height: min(52vh, 360px);
+    max-height: min(52vh, 360px);
+  }
+
+  .archive-preview {
+    padding: 16px;
+  }
+
+  .meta-summary-row {
+    flex-direction: column;
+  }
+
+  .meta-summary-value {
+    text-align: left;
+  }
+}
 
 </style>
 

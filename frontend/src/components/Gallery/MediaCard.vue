@@ -1,5 +1,5 @@
 <template>
-  <article class="media-card" @mouseenter="onHoverStart" @mouseleave="onHoverEnd">
+  <article :class="['media-card', { 'media-card--compact': compact }]" @mouseenter="onHoverStart" @mouseleave="onHoverEnd">
     <RouterLink :to="`/media/${media.id}`" class="media-card__link">
       <div class="media-card__thumb" :class="{ 'media-card__thumb--hover': showHoverPreview }">
         <div v-if="showHoverPreview" class="media-card__preview-overlay">
@@ -37,7 +37,7 @@
             +{{ media.collections.length - 2 }}
           </span>
         </div>
-        <div class="media-card__tags">
+        <div v-if="showTags" class="media-card__tags">
           <TagBadge v-for="tag in media.tags?.slice(0, 3)" :key="tag.id" :tag="tag" />
         </div>
       </div>
@@ -64,7 +64,14 @@ import { mediaAssetUrl, type Media } from '@/api/mediaApi'
 import TagBadge from '@/components/Tags/TagBadge.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 
-const props = defineProps<{ media: Media }>()
+const props = withDefaults(defineProps<{
+  media: Media
+  showTags?: boolean
+  compact?: boolean
+}>(), {
+  showTags: true,
+  compact: false,
+})
 const store = useMediaStore()
 const thumbError = ref(false)
 const hovering = ref(false)
@@ -184,7 +191,7 @@ const typeIcon = computed(() => (props.media.type === 'video' ? 'video' : props.
   border: 1px solid rgba(255,255,255,0.08);
   cursor: pointer;
   font-size: 12px;
-  color: var(--text-muted);
+  color: #ffffff;
   min-width: 30px;
   height: 30px;
   padding: 0 10px;
@@ -260,5 +267,34 @@ const typeIcon = computed(() => (props.media.type === 'video' ? 'video' : props.
   border-color: var(--border);
   background: rgba(255,255,255,0.04);
   color: var(--text-muted);
+}
+
+.media-card--compact .media-card__info {
+  padding: 8px 10px;
+  gap: 4px;
+}
+
+.media-card--compact .media-card__title {
+  font-size: 12px;
+}
+
+.media-card--compact .media-card__collections {
+  gap: 3px;
+}
+
+.media-card--compact .media-card__collection-chip {
+  padding: 2px 7px;
+  font-size: 9px;
+}
+
+@media (max-width: 640px) {
+  .media-card__info {
+    padding: 9px 10px;
+    gap: 4px;
+  }
+
+  .media-card__title {
+    font-size: 12px;
+  }
 }
 </style>

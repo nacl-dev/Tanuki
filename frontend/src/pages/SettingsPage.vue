@@ -491,6 +491,7 @@ async function scrollToSection(section: unknown) {
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .card-head h3 {
@@ -705,6 +706,20 @@ async function scrollToSection(section: unknown) {
   }
 
   .overview-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .status-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .status-pill {
+    align-self: flex-start;
+  }
+
+  .maintenance-grid,
+  .path-health-grid {
     grid-template-columns: 1fr;
   }
 }

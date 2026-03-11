@@ -144,6 +144,7 @@ async function removePlugin() {
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .page-desc code {
@@ -197,7 +198,7 @@ async function removePlugin() {
 
 .plugin-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 16px;
 }
 
@@ -240,6 +241,7 @@ async function removePlugin() {
   font-size: 12px;
   color: var(--text-muted);
   font-family: monospace;
+  overflow-wrap: anywhere;
 }
 
 .plugin-meta {
@@ -253,6 +255,7 @@ async function removePlugin() {
 .plugin-meta a {
   color: var(--accent);
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 .plugin-meta a:hover {
   text-decoration: underline;
@@ -355,5 +358,32 @@ async function removePlugin() {
 
 .btn-danger-sm:hover {
   background: rgba(220, 60, 60, 0.12);
+}
+
+@media (max-width: 720px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .page-header .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .plugin-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .plugin-actions {
+    justify-content: stretch;
+  }
+
+  .plugin-actions .btn-danger-sm {
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>

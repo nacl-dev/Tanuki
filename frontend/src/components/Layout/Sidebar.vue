@@ -6,7 +6,7 @@
       </div>
       <div class="logo-copy">
         <span class="logo-text">Tanuki</span>
-        <span class="logo-subtitle">Media Vault</span>
+        <span class="logo-subtitle">Browse, continue and organize your vault.</span>
       </div>
       <button type="button" class="sidebar-close" aria-label="Close navigation" @click="$emit('close')">
         <AppIcon name="close" :size="16" />
@@ -85,6 +85,8 @@ async function onLogout() {
   flex-shrink: 0;
   gap: 14px;
   z-index: 40;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sidebar-logo {
@@ -128,6 +130,7 @@ async function onLogout() {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
 .logo-text {
@@ -140,8 +143,10 @@ async function onLogout() {
 .logo-subtitle {
   color: var(--text-muted);
   font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  white-space: normal;
+  text-transform: none;
 }
 
 .sidebar-nav {
@@ -228,7 +233,10 @@ async function onLogout() {
     top: 0;
     bottom: 0;
     left: 0;
-    width: min(82vw, 300px);
+    width: min(86vw, 320px);
+    max-width: calc(100vw - 20px);
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);

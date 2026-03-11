@@ -80,4 +80,14 @@ import ScheduleManager from '@/components/Downloads/ScheduleManager.vue'
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 640px) {
+  .downloads-page {
+    gap: 18px;
+  }
+
+  .downloads-layout {
+    gap: 18px;
+  }
+}
 </style>

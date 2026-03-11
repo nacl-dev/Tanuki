@@ -1,22 +1,5 @@
 <template>
   <div class="library-page">
-    <section class="library-hero card">
-      <div class="library-hero__copy">
-        <span class="library-hero__eyebrow">Library</span>
-        <h1>Browse, continue and organize your vault.</h1>
-        <p>Global maintenance actions live here now instead of floating across every page.</p>
-      </div>
-      <div class="library-hero__actions">
-        <span :class="['task-live-indicator', `task-live-indicator--${taskLiveStatus}`]">{{ taskLiveLabel }}</span>
-        <button class="btn btn-ghost" :disabled="tagging" @click="runBatchAutoTag">
-          {{ tagging ? 'Queueing…' : 'Auto-tag Untagged' }}
-        </button>
-        <button class="btn btn-primary" :disabled="scanning" @click="scanLibrary">
-          {{ scanning ? 'Queueing…' : 'Scan Library' }}
-        </button>
-      </div>
-    </section>
-
     <section v-if="recentTasks.length" class="library-tasks">
       <article
         v-for="task in recentTasks"
@@ -100,38 +83,66 @@
     <section v-if="collections.length" class="library-collections">
       <div class="library-collections__header">
         <span class="gallery-count">Collections</span>
+        <div class="library-collections__header-actions">
+          <span v-if="pinnedCollectionIds.length" class="library-collections__summary">
+            Pinned {{ pinnedCollectionIds.length }} / {{ maxPinnedCollections }}
+          </span>
+          <button
+            v-if="collectionsExpanded || hiddenCollectionsCount > 0"
+            type="button"
+            class="btn btn-ghost btn-sm library-collections__toggle"
+            @click="toggleCollectionsExpanded"
+          >
+            {{ collectionsExpanded ? 'Show less' : `More (${hiddenCollectionsCount})` }}
+          </button>
+        </div>
       </div>
 
       <div class="library-collections__grid">
-        <button
-          v-for="collection in collections"
+        <article
+          v-for="collection in visibleCollections"
           :key="collection.id"
-          :class="['collection-card', { active: expandedCollectionId === collection.id }]"
-          @click="toggleCollection(collection.id)"
+          class="collection-card-shell"
         >
-          <div class="collection-card__preview" v-if="collection.items?.length">
-            <div class="preview-stack">
-              <div
-                v-for="(item, index) in previewItems(collection)"
-                :key="item.id"
-                class="preview-tile"
-                :class="{ 'preview-tile--lead': index === 0 }"
-                :style="previewTileStyle(index, previewItems(collection).length)"
-              >
-                <img
-                  class="preview-image"
-                  :src="mediaAssetUrl(item.id, 'thumbnail', item.updated_at)"
-                  :alt="item.title"
-                  loading="lazy"
-                />
+          <button
+            type="button"
+            :class="['collection-card', { active: expandedCollectionId === collection.id }]"
+            @click="toggleCollection(collection.id)"
+          >
+            <div class="collection-card__preview" v-if="collection.items?.length">
+              <div class="preview-stack">
+                <div
+                  v-for="(item, index) in previewItems(collection)"
+                  :key="item.id"
+                  class="preview-tile"
+                  :class="{ 'preview-tile--lead': index === 0 }"
+                  :style="previewTileStyle(index, previewItems(collection).length)"
+                >
+                  <img
+                    class="preview-image"
+                    :src="mediaAssetUrl(item.id, 'thumbnail', item.updated_at)"
+                    :alt="item.title"
+                    loading="lazy"
+                  />
+                </div>
               </div>
             </div>
-          </div>
-          <div class="collection-card__meta">
-            <span class="collection-card__name">{{ collection.name }}</span>
-            <small>{{ collection.item_count }}</small>
-          </div>
-        </button>
+            <div class="collection-card__meta">
+              <span class="collection-card__name">{{ collection.name }}</span>
+              <small>{{ collection.item_count }}</small>
+            </div>
+          </button>
+          <button
+            type="button"
+            :class="['collection-card__pin', { 'collection-card__pin--active': isCollectionPinned(collection.id) }]"
+            :title="isCollectionPinned(collection.id) ? 'Unpin collection from Library' : 'Pin collection to Library'"
+            :aria-pressed="isCollectionPinned(collection.id)"
+            @click.stop="toggleCollectionPin(collection.id)"
+          >
+            <AppIcon name="pin" :size="13" :filled="isCollectionPinned(collection.id)" />
+            <span>{{ isCollectionPinned(collection.id) ? 'Pinned' : 'Pin' }}</span>
+          </button>
+        </article>
       </div>
 
       <div v-if="expandedCollectionId" class="library-collections__expanded">
@@ -139,7 +150,12 @@
           <h3>{{ expandedCollection?.name ?? 'Collection' }}</h3>
           <button class="btn btn-ghost btn-sm" @click="expandedCollectionId = ''">Close</button>
         </div>
-        <MediaGrid :items="expandedCollection?.items ?? []" :loading="expandedCollectionLoading" :density="gridDensity" />
+        <MediaGrid
+          :items="expandedCollection?.items ?? []"
+          :loading="expandedCollectionLoading"
+          :density="gridDensity"
+          :show-tags="false"
+        />
       </div>
     </section>
 
@@ -150,23 +166,29 @@
         class="card shelf-card"
       >
         <div class="shelf-card__head">
-          <div>
+          <div class="shelf-card__copy">
             <span class="gallery-count">{{ shelf.kicker }}</span>
             <h3>{{ shelf.title }}</h3>
           </div>
+          <div class="shelf-card__overlay">
+            <span class="shelf-card__count">{{ shelf.visibleCount }}</span>
+            <button
+              v-if="shelf.expandable"
+              type="button"
+              class="btn btn-ghost btn-sm shelf-card__more"
+              @click="toggleShelf(shelf.key)"
+            >
+              {{ shelf.expanded ? 'Show less' : `Show more (${shelf.moreCount})` }}
+            </button>
+          </div>
         </div>
-        <div class="shelf-card__meta">
-          <span class="shelf-card__count">{{ shelf.visibleCount }}</span>
-          <button
-            v-if="shelf.expandable"
-            type="button"
-            class="btn btn-ghost btn-sm"
-            @click="toggleContinueShelf"
-          >
-            {{ continueExpanded ? 'Show less' : `Show more (${shelf.totalCount})` }}
-          </button>
-        </div>
-        <MediaGrid :items="shelf.items" :loading="false" :density="gridDensity" />
+        <MediaGrid
+          :items="shelf.items"
+          :loading="false"
+          :density="gridDensity"
+          :show-tags="false"
+          :compact-cards="true"
+        />
       </article>
     </section>
 
@@ -194,7 +216,7 @@
           </div>
         </div>
       </div>
-      <MediaGrid :items="store.items" :loading="store.loading" :density="gridDensity" />
+       <MediaGrid :items="store.items" :loading="store.loading" :density="gridDensity" :show-tags="false" />
 
       <div v-if="store.totalPages > 1" class="pagination">
         <button class="btn btn-ghost btn-sm" :disabled="store.currentPage <= 1" @click="store.prevPage()">← Previous</button>
@@ -208,16 +230,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { autotagApi } from '@/api/autotagApi'
 import { useMediaStore } from '@/stores/mediaStore'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
 import { collectionApi, type Collection } from '@/api/collectionApi'
-import { libraryApi } from '@/api/libraryApi'
 import { mediaApi, mediaAssetUrl, type Media } from '@/api/mediaApi'
 import { taskApi, type BackgroundTask } from '@/api/taskApi'
 import AppIcon from '@/components/Layout/AppIcon.vue'
+import { useAuthStore } from '@/stores/authStore'
 import { useNoticeStore } from '@/stores/noticeStore'
 
+const authStore = useAuthStore()
 const store = useMediaStore()
 const route = useRoute()
 const { pushNotice } = useNoticeStore()
@@ -226,28 +248,20 @@ const collections = ref<Collection[]>([])
 const expandedCollectionId = ref('')
 const expandedCollection = ref<Collection | null>(null)
 const expandedCollectionLoading = ref(false)
-const scanning = ref(false)
-const tagging = ref(false)
 const continueItems = ref<Media[]>([])
 const recentItems = ref<Media[]>([])
 const favoriteItems = ref<Media[]>([])
 const tasks = ref<BackgroundTask[]>([])
 const hadActiveTasks = ref(false)
 const gridDensity = ref<'cozy' | 'compact'>('cozy')
+const pinnedCollectionIds = ref<string[]>([])
+const collectionsExpanded = ref(false)
 const continueExpanded = ref(false)
-const taskLiveStatus = ref<'connecting' | 'live' | 'fallback'>('connecting')
-const taskLiveLabel = computed(() => {
-  switch (taskLiveStatus.value) {
-    case 'live':
-      return 'Tasks live'
-    case 'fallback':
-      return 'Task polling fallback'
-    default:
-      return 'Connecting tasks'
-  }
-})
+const recentExpanded = ref(false)
 let taskFallbackTimer: number | null = null
 let taskStream: EventSource | null = null
+const maxExpandedShelfItems = 6
+const maxPinnedCollections = 2
 
 const types = [
   { value: '', label: 'All' },
@@ -305,15 +319,44 @@ function toggleCollection(id: string) {
   expandedCollectionId.value = id
   void loadExpandedCollection(id)
 }
+
+const legacyPinnedCollectionsStorageKey = computed(() =>
+  `tanuki_library_pinned_collections:${authStore.user?.id ?? authStore.user?.username ?? 'default'}`,
+)
+
+const orderedCollections = computed(() => {
+  const collectionMap = new Map(collections.value.map((collection) => [collection.id, collection]))
+  const pinned = pinnedCollectionIds.value
+    .map((id) => collectionMap.get(id))
+    .filter((collection): collection is Collection => Boolean(collection))
+  const pinnedIds = new Set(pinned.map((collection) => collection.id))
+  const others = collections.value.filter((collection) => !pinnedIds.has(collection.id))
+  return [...pinned, ...others]
+})
+
+const featuredCollections = computed(() => orderedCollections.value.slice(0, maxPinnedCollections))
+const visibleCollections = computed(() => collectionsExpanded.value ? orderedCollections.value : featuredCollections.value)
+const hiddenCollectionsCount = computed(() => Math.max(orderedCollections.value.length - featuredCollections.value.length, 0))
+
+const shelfPreviewLimit = computed(() => 2)
+const expandedShelfCount = (items: Media[]) => Math.min(items.length, maxExpandedShelfItems)
+const moreShelfCount = (items: Media[]) => Math.max(expandedShelfCount(items) - Math.min(items.length, shelfPreviewLimit.value), 0)
+
 const quickShelves = computed(() => [
   {
     key: 'continue',
     kicker: 'Continue',
     title: 'Pick up where you left off',
-    items: continueExpanded.value ? continueItems.value : continueItems.value.slice(0, 3),
-    visibleCount: continueExpanded.value ? continueItems.value.length : Math.min(continueItems.value.length, 3),
+    items: continueExpanded.value
+      ? continueItems.value.slice(0, maxExpandedShelfItems)
+      : continueItems.value.slice(0, shelfPreviewLimit.value),
+    visibleCount: continueExpanded.value
+      ? expandedShelfCount(continueItems.value)
+      : Math.min(continueItems.value.length, shelfPreviewLimit.value),
     totalCount: continueItems.value.length,
-    expandable: continueItems.value.length > 3,
+    expandable: continueItems.value.length > shelfPreviewLimit.value,
+    expanded: continueExpanded.value,
+    moreCount: moreShelfCount(continueItems.value),
   },
   {
     key: 'favorites',
@@ -323,15 +366,23 @@ const quickShelves = computed(() => [
     visibleCount: favoriteItems.value.length,
     totalCount: favoriteItems.value.length,
     expandable: false,
+    expanded: false,
+    moreCount: 0,
   },
   {
     key: 'recent',
     kicker: 'Recent',
     title: 'Newest additions to the vault',
-    items: recentItems.value.slice(0, 3),
-    visibleCount: Math.min(recentItems.value.length, 3),
+    items: recentExpanded.value
+      ? recentItems.value.slice(0, maxExpandedShelfItems)
+      : recentItems.value.slice(0, shelfPreviewLimit.value),
+    visibleCount: recentExpanded.value
+      ? expandedShelfCount(recentItems.value)
+      : Math.min(recentItems.value.length, shelfPreviewLimit.value),
     totalCount: recentItems.value.length,
-    expandable: false,
+    expandable: recentItems.value.length > shelfPreviewLimit.value,
+    expanded: recentExpanded.value,
+    moreCount: moreShelfCount(recentItems.value),
   },
 ].filter((section) => section.items.length > 0))
 const recentTasks = computed(() =>
@@ -340,9 +391,126 @@ const recentTasks = computed(() =>
     .slice(0, 4),
 )
 
+function sanitizePinnedCollectionIds(ids: string[]) {
+  return ids
+    .map((id) => typeof id === 'string' ? id.trim() : '')
+    .filter((id, index, all) => id !== '' && all.indexOf(id) === index)
+    .slice(0, maxPinnedCollections)
+}
+
+function normalizePinnedCollectionIds(ids: string[]) {
+  const validCollectionIds = new Set(collections.value.map((collection) => collection.id))
+  return sanitizePinnedCollectionIds(ids).filter((id) => validCollectionIds.has(id))
+}
+
+function readLegacyPinnedCollectionIds() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(legacyPinnedCollectionsStorageKey.value)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function clearLegacyPinnedCollectionIds() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(legacyPinnedCollectionsStorageKey.value)
+}
+
+function hydratePinnedCollectionIdsFromAccount() {
+  pinnedCollectionIds.value = sanitizePinnedCollectionIds(authStore.user?.library_pinned_collection_ids ?? [])
+}
+
+async function persistPinnedCollectionIds(nextIds: string[], options?: { clearLegacy?: boolean; silent?: boolean }) {
+  if (!authStore.user) return
+
+  const previousIds = [...pinnedCollectionIds.value]
+  pinnedCollectionIds.value = nextIds
+
+  try {
+    await authStore.updateLibraryPins(nextIds)
+    if (options?.clearLegacy) {
+      clearLegacyPinnedCollectionIds()
+    }
+  } catch (error) {
+    pinnedCollectionIds.value = previousIds
+    if (!options?.silent) {
+      pushNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save pinned collections',
+      })
+    }
+    throw error
+  }
+}
+
+async function syncPinnedCollectionIds() {
+  const next = normalizePinnedCollectionIds(pinnedCollectionIds.value)
+  if (JSON.stringify(next) !== JSON.stringify(pinnedCollectionIds.value)) {
+    await persistPinnedCollectionIds(next, { silent: true })
+  }
+}
+
+async function migrateLegacyPinnedCollectionIds() {
+  if (authStore.user?.library_pinned_collection_ids?.length) {
+    clearLegacyPinnedCollectionIds()
+    return
+  }
+
+  const next = normalizePinnedCollectionIds(readLegacyPinnedCollectionIds())
+  if (!next.length) return
+
+  await persistPinnedCollectionIds(next, { clearLegacy: true, silent: true })
+  hydratePinnedCollectionIdsFromAccount()
+}
+
+function isCollectionPinned(id: string) {
+  return pinnedCollectionIds.value.includes(id)
+}
+
+async function toggleCollectionPin(id: string) {
+  const nextIds = isCollectionPinned(id)
+    ? pinnedCollectionIds.value.filter((pinnedId) => pinnedId !== id)
+    : [...pinnedCollectionIds.value, id]
+
+  if (!isCollectionPinned(id) && pinnedCollectionIds.value.length >= maxPinnedCollections) {
+    pushNotice({
+      type: 'info',
+      message: 'You can pin up to two collections on the Library page.',
+    })
+    return
+  }
+
+  try {
+    await persistPinnedCollectionIds(sanitizePinnedCollectionIds(nextIds))
+  } catch {
+    hydratePinnedCollectionIdsFromAccount()
+  }
+}
+
+function toggleCollectionsExpanded() {
+  collectionsExpanded.value = !collectionsExpanded.value
+
+  if (!collectionsExpanded.value) {
+    const visibleIds = new Set(featuredCollections.value.map((collection) => collection.id))
+    if (expandedCollectionId.value && !visibleIds.has(expandedCollectionId.value)) {
+      expandedCollectionId.value = ''
+      expandedCollection.value = null
+    }
+  }
+}
+
 async function loadCollections() {
   const res = await collectionApi.list()
   collections.value = res.data ?? []
+  hydratePinnedCollectionIdsFromAccount()
+  await syncPinnedCollectionIds()
+  await migrateLegacyPinnedCollectionIds()
 }
 
 async function loadExpandedCollection(id: string) {
@@ -374,15 +542,22 @@ async function loadQuickShelves() {
   const [continueRes, favoriteRes, recentRes] = await Promise.all([
     mediaApi.list({ limit: 12, in_progress: true, sort: 'newest' }),
     mediaApi.list({ limit: 6, favorite: true, sort: 'rating' }),
-    mediaApi.list({ limit: 3, sort: 'newest' }),
+    mediaApi.list({ limit: 12, sort: 'newest' }),
   ])
   continueItems.value = continueRes.data ?? []
   favoriteItems.value = favoriteRes.data ?? []
   recentItems.value = recentRes.data ?? []
 }
 
-function toggleContinueShelf() {
-  continueExpanded.value = !continueExpanded.value
+function toggleShelf(key: string) {
+  if (key === 'continue') {
+    continueExpanded.value = !continueExpanded.value
+    return
+  }
+
+  if (key === 'recent') {
+    recentExpanded.value = !recentExpanded.value
+  }
 }
 
 async function refreshLibrarySurfaces() {
@@ -427,14 +602,12 @@ function stopTaskFallbackPolling() {
 
 function startTaskStream() {
   if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
-    taskLiveStatus.value = 'fallback'
     ensureTaskFallbackPolling()
     return
   }
 
   taskStream = new EventSource(taskApi.streamUrl(8))
   taskStream.onopen = () => {
-    taskLiveStatus.value = 'live'
     stopTaskFallbackPolling()
   }
   taskStream.onmessage = (event) => {
@@ -445,7 +618,6 @@ function startTaskStream() {
     }
   }
   taskStream.onerror = () => {
-    taskLiveStatus.value = 'fallback'
     ensureTaskFallbackPolling()
   }
 }
@@ -479,45 +651,13 @@ async function loadTasks() {
   }
 }
 
-async function scanLibrary() {
-  if (scanning.value) return
-  scanning.value = true
-  try {
-    const response = await libraryApi.scan()
-    pushNotice({
-      type: 'success',
-      message: `Library scan queued (${response.data.task_id.slice(0, 8)})`,
-    })
-    await loadTasks()
-  } catch (error) {
-    pushNotice({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to queue library scan',
-    })
-  } finally {
-    scanning.value = false
-  }
-}
-
-async function runBatchAutoTag() {
-  if (tagging.value) return
-  tagging.value = true
-  try {
-    const response = await autotagApi.autotagBatch('all_untagged')
-    pushNotice({
-      type: 'success',
-      message: `Auto-tag batch queued (${response.data.queued} items)`,
-    })
-    await loadTasks()
-  } catch (error) {
-    pushNotice({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to queue auto-tag batch',
-    })
-  } finally {
-    tagging.value = false
-  }
-}
+watch(
+  () => authStore.user?.library_pinned_collection_ids,
+  () => {
+    hydratePinnedCollectionIdsFromAccount()
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   const savedDensity = window.localStorage.getItem('tanuki_grid_density')
@@ -584,17 +724,6 @@ watch(
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
-}
-
-.library-hero {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  background:
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.16), transparent 30%),
-    linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
-    var(--bg-card);
 }
 
 .task-card {
@@ -668,59 +797,6 @@ watch(
   font-size: 12px;
 }
 
-.library-hero__copy {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.library-hero__eyebrow {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-}
-
-.library-hero__copy h1 {
-  font-size: clamp(22px, 3vw, 30px);
-  line-height: 1.1;
-}
-
-.library-hero__copy p {
-  max-width: 560px;
-  color: var(--text-muted);
-}
-
-.library-hero__actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.task-live-indicator {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.task-live-indicator--live {
-  border-color: rgba(74, 222, 128, 0.35);
-  color: #4ade80;
-}
-
-.task-live-indicator--fallback {
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #f0b35b;
-}
 
 .filter-bar {
   display: flex;
@@ -729,7 +805,8 @@ watch(
   flex-wrap: wrap;
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 12;
+  isolation: isolate;
   margin-top: 0;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -840,13 +917,14 @@ watch(
 .library-shelves {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .shelf-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+  padding: 12px;
 }
 
 .shelf-card__head {
@@ -854,35 +932,83 @@ watch(
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.shelf-card__meta {
+.shelf-card__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shelf-card__overlay {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .shelf-card__head h3 {
-  margin-top: 4px;
-  font-size: 16px;
+  margin-top: 2px;
+  font-size: 15px;
+  line-height: 1.2;
 }
 
 .shelf-card__count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  padding: 4px 8px;
+  min-width: 0;
+  padding: 5px 10px;
   border-radius: 999px;
   background: var(--bg-surface);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.shelf-card__more {
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
 }
 
 .library-collections__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.library-collections__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.library-collections__summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.library-collections__toggle {
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
 }
 
 .library-collections__grid {
@@ -891,10 +1017,15 @@ watch(
   gap: 14px;
 }
 
+.collection-card-shell {
+  position: relative;
+}
+
 .collection-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
   padding: 10px;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -913,6 +1044,30 @@ watch(
 .collection-card.active {
   border-color: var(--accent);
   background: var(--accent-dimmed);
+}
+
+.collection-card__pin {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.collection-card__pin--active {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.16);
+  color: #f4c06a;
 }
 
 .collection-card__preview {
@@ -1040,21 +1195,6 @@ watch(
 .pagination-info { font-size: 13px; color: var(--text-muted); }
 
 @media (max-width: 960px) {
-  .library-hero {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .library-hero__actions {
-    width: 100%;
-    justify-content: stretch;
-  }
-
-  .library-hero__actions .btn {
-    flex: 1;
-    justify-content: center;
-  }
-
   .filter-bar {
     gap: 16px;
   }
@@ -1064,11 +1204,113 @@ watch(
   .filter-bar {
     position: static;
     padding: 10px;
+    align-items: flex-start;
+  }
+
+  .filter-options {
+    width: 100%;
   }
 
   .filter-options--inline {
-    flex-direction: column;
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .filter-chip {
+    width: auto;
+  }
+
+  .rating-filter {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .sort-select-wrap {
+    width: auto;
+    margin-left: auto;
+  }
+
+  .sort-select {
+    width: auto;
+    min-width: 112px;
+    padding: 7px 30px 7px 14px;
+  }
+
+  .rating-star {
+    font-size: 16px;
+  }
+
+  .clear-rating {
+    margin-left: 0;
+  }
+
+  .gallery-controls {
+    align-items: stretch;
+  }
+
+  .density-toggle {
+    width: 100%;
+  }
+
+  .density-chip {
+    flex: 1;
+    text-align: center;
+  }
+
+  .pagination {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .pagination .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .library-collections__expanded-head {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .library-collections__grid,
+  .library-shelves,
+  .library-tasks {
+    grid-template-columns: 1fr;
+  }
+
+  .library-collections__header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .library-collections__header-actions {
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+
+  .collection-card__pin span {
+    display: none;
+  }
+
+  .shelf-card__overlay {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .rating-filter {
+    gap: 6px;
+  }
+
+  .sort-select {
+    min-width: 100px;
+    padding-inline: 12px 28px;
   }
 }
 </style>

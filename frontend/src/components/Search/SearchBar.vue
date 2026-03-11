@@ -241,6 +241,7 @@ onUnmounted(() => {
 .search-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -284,7 +285,8 @@ onUnmounted(() => {
 }
 
 .search-input {
-  flex: 1;
+  flex: 1 1 160px;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
@@ -357,5 +359,19 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .search-bar {
+    padding: 8px 10px;
+  }
+
+  .active-tag-chip {
+    max-width: 100%;
+  }
+
+  .clear-btn {
+    margin-left: auto;
+  }
 }
 </style>

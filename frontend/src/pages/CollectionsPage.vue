@@ -640,6 +640,16 @@ onMounted(() => {
     flex-direction: column;
   }
 
+  .section-header,
+  .collection-link__meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .collections-pill-list {
+    grid-template-columns: 1fr;
+  }
+
   .collection-detail__actions {
     width: 100%;
     justify-content: stretch;
@@ -647,6 +657,10 @@ onMounted(() => {
 
   .collection-detail__actions .btn {
     flex: 1;
+  }
+
+  .edit-actions .btn {
+    flex: 1 1 100%;
   }
 }
 </style>

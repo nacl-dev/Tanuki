@@ -7,8 +7,16 @@ export interface User {
   display_name: string
   role: 'admin' | 'user'
   is_active: boolean
+  library_pinned_collection_ids: string[]
   created_at: string
   updated_at: string
+}
+
+export interface UpdateProfileInput {
+  display_name?: string
+  email?: string
+  password?: string
+  library_pinned_collection_ids?: string[]
 }
 
 export interface LoginResponse {
@@ -38,9 +46,7 @@ export const authApi = {
   me: () =>
     client.get<{ data: User }>('/auth/me').then((r) => r.data.data),
 
-  updateProfile: (
-    body: Partial<Pick<User, 'display_name' | 'email'>> & { password?: string },
-  ) =>
+  updateProfile: (body: UpdateProfileInput) =>
     client
       .patch<{ data: User }>('/auth/me', body)
       .then((r) => r.data.data),

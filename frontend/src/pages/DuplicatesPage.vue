@@ -73,6 +73,7 @@ async function onResolved(keepId: string, deleteIds: string[], mergeTags: boolea
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .page-header--embedded .page-title {
@@ -131,5 +132,16 @@ async function onResolved(keepId: string, deleteIds: string[], mergeTags: boolea
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .page-header {
+    align-items: stretch;
+  }
+
+  .page-header .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { authApi, type User } from '@/api/authApi'
+import { authApi, type UpdateProfileInput, type User } from '@/api/authApi'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -44,10 +44,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function updateProfile(
-    body: Partial<Pick<User, 'display_name' | 'email'>> & { password?: string },
-  ) {
+  async function updateProfile(body: UpdateProfileInput) {
     user.value = await authApi.updateProfile(body)
+  }
+
+  async function updateLibraryPins(libraryPinnedCollectionIds: string[]) {
+    user.value = await authApi.updateProfile({
+      library_pinned_collection_ids: libraryPinnedCollectionIds,
+    })
   }
 
   return {
@@ -60,5 +64,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     fetchMe,
     updateProfile,
+    updateLibraryPins,
   }
 })

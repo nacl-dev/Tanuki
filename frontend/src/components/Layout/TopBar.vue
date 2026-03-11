@@ -8,6 +8,15 @@
     </div>
     <div class="topbar-actions">
       <button
+        v-if="showLibraryActions"
+        type="button"
+        class="btn btn-primary topbar-scan-btn"
+        :disabled="scanning"
+        @click="scanLibrary"
+      >
+        {{ scanning ? 'Queueing…' : 'Scan Library' }}
+      </button>
+      <button
         type="button"
         :class="['btn privacy-btn', privacyStore.enabled ? 'privacy-btn--active' : 'btn-ghost']"
         :aria-pressed="privacyStore.enabled"
@@ -15,7 +24,7 @@
         @click="privacyStore.toggle()"
       >
         <AppIcon :name="privacyStore.enabled ? 'eyeOff' : 'eye'" :size="15" />
-        {{ privacyStore.enabled ? 'Blur On' : 'Blur Off' }}
+        <span class="privacy-btn__label">{{ privacyStore.enabled ? 'Blur On' : 'Blur Off' }}</span>
       </button>
       <div class="user-info" v-if="authStore.user">
         <span class="user-name">
@@ -29,10 +38,13 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { libraryApi } from '@/api/libraryApi'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import SearchBar from '@/components/Search/SearchBar.vue'
 import { useAuthStore } from '@/stores/authStore'
+import { useNoticeStore } from '@/stores/noticeStore'
 import { usePrivacyStore } from '@/stores/privacyStore'
 
 defineEmits<{
@@ -40,8 +52,31 @@ defineEmits<{
 }>()
 
 const authStore = useAuthStore()
+const route = useRoute()
 const privacyStore = usePrivacyStore()
 const router = useRouter()
+const { pushNotice } = useNoticeStore()
+const scanning = ref(false)
+const showLibraryActions = computed(() => route.name === 'library')
+
+async function scanLibrary() {
+  if (scanning.value) return
+  scanning.value = true
+  try {
+    const response = await libraryApi.scan()
+    pushNotice({
+      type: 'success',
+      message: `Library scan queued (${response.data.task_id.slice(0, 8)})`,
+    })
+  } catch (error) {
+    pushNotice({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to queue library scan',
+    })
+  } finally {
+    scanning.value = false
+  }
+}
 
 async function onLogout() {
   await authStore.logout()
@@ -75,11 +110,24 @@ async function onLogout() {
 }
 
 .topbar-search { flex: 1; min-width: 0; max-width: 560px; }
-.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.topbar-scan-btn {
+  min-width: 108px;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
 
 .privacy-btn {
   min-width: 108px;
   justify-content: center;
+}
+
+.privacy-btn__label {
+  white-space: nowrap;
 }
 
 .privacy-btn--active {
@@ -97,6 +145,7 @@ async function onLogout() {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .user-name {
@@ -137,32 +186,71 @@ async function onLogout() {
   .topbar {
     height: auto;
     min-height: var(--topbar-height);
-    flex-wrap: wrap;
-    padding-top: 10px;
-    padding-bottom: 10px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
   }
 
   .menu-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .topbar-search {
-    flex-basis: calc(100% - 52px);
+    grid-column: 1 / -1;
+    grid-row: 2;
     max-width: none;
   }
 
   .topbar-actions {
-    width: 100%;
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
     margin-left: 0;
     flex-wrap: wrap;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .user-info {
-    width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
+  }
+
+  .privacy-btn {
+    min-width: 0;
+  }
+
+  .topbar-scan-btn {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    gap: 8px 10px;
+    padding-inline: 12px;
+  }
+
+  .topbar-actions {
+    gap: 8px;
+  }
+
+  .user-name {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .privacy-btn {
+    padding-inline: 12px;
+  }
+
+  .privacy-btn__label {
+    display: none;
   }
 }
 </style>

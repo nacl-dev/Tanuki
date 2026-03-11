@@ -89,6 +89,7 @@ async function onSubmit() {
 <style scoped>
 .auth-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,4 +184,14 @@ async function onSubmit() {
 }
 
 .auth-footer a { color: var(--accent); }
+
+@media (max-width: 480px) {
+  .auth-page {
+    padding: 14px;
+  }
+
+  .auth-card {
+    padding: 28px 20px;
+  }
+}
 </style>

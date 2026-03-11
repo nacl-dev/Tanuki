@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/nacl-dev/tanuki/internal/auth"
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
@@ -33,9 +34,10 @@ type loginRequest struct {
 }
 
 type updateProfileRequest struct {
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	Password    string `json:"password"`
+	DisplayName                string    `json:"display_name"`
+	Email                      string    `json:"email"`
+	Password                   string    `json:"password"`
+	LibraryPinnedCollectionIDs *[]string `json:"library_pinned_collection_ids"`
 }
 
 type loginResponse struct {
@@ -97,7 +99,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	err = tx.QueryRowx(`
 		INSERT INTO users (username, email, password_hash, display_name, role)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		RETURNING id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 	`, req.Username, req.Email, hash, req.DisplayName, string(role)).StructScan(&user)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -126,7 +128,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	var user models.User
 	err := h.db.QueryRowx(`
-		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 		FROM users
 		WHERE (username = $1 OR email = $1) AND is_active = TRUE
 	`, req.Username).StructScan(&user)
@@ -165,7 +167,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 
 	var user models.User
 	err := h.db.QueryRowx(`
-		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 		FROM users WHERE id = $1
 	`, userID).StructScan(&user)
 	if err != nil {
@@ -190,7 +192,7 @@ func (h *AuthHandler) UpdateMe(c *gin.Context) {
 	// Fetch existing user
 	var user models.User
 	if err := h.db.QueryRowx(`
-		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 		FROM users WHERE id = $1
 	`, userID).StructScan(&user); err != nil {
 		respondError(c, http.StatusNotFound, "user not found")
@@ -215,13 +217,21 @@ func (h *AuthHandler) UpdateMe(c *gin.Context) {
 		}
 		user.PasswordHash = hash
 	}
+	if req.LibraryPinnedCollectionIDs != nil {
+		user.LibraryPinnedCollectionIDs = normalizePinnedCollectionIDs(*req.LibraryPinnedCollectionIDs)
+	}
 
 	user.UpdatedAt = time.Now()
 
 	_, err := h.db.Exec(`
-		UPDATE users SET display_name=$1, email=$2, password_hash=$3, updated_at=$4
-		WHERE id=$5
-	`, user.DisplayName, user.Email, user.PasswordHash, user.UpdatedAt, userID)
+		UPDATE users
+		SET display_name = $1,
+			email = $2,
+			password_hash = $3,
+			library_pinned_collection_ids = $4,
+			updated_at = $5
+		WHERE id = $6
+	`, user.DisplayName, user.Email, user.PasswordHash, user.LibraryPinnedCollectionIDs, user.UpdatedAt, userID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			respondError(c, http.StatusConflict, "email already taken")
@@ -241,7 +251,7 @@ func (h *AuthHandler) UpdateMe(c *gin.Context) {
 func (h *AuthHandler) ListUsers(c *gin.Context) {
 	var users []models.User
 	if err := h.db.Select(&users, `
-		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 		FROM users ORDER BY created_at ASC
 	`); err != nil {
 		respondError(c, http.StatusInternalServerError, "database error")
@@ -284,7 +294,7 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 
 	var user models.User
 	if err := tx.QueryRowx(`
-		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).StructScan(&user); err != nil {
 		respondError(c, http.StatusNotFound, "user not found")
@@ -363,7 +373,7 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 
 	var user models.User
 	if err := tx.Get(&user, `
-		SELECT id, username, email, password_hash, display_name, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`, id); err != nil {
@@ -416,4 +426,26 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 // isUniqueViolation returns true if err is a PostgreSQL unique constraint violation.
 func isUniqueViolation(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "duplicate key"))
+}
+
+func normalizePinnedCollectionIDs(ids []string) pq.StringArray {
+	normalized := make(pq.StringArray, 0, 2)
+	seen := make(map[string]struct{}, len(ids))
+
+	for _, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+		if len(normalized) == 2 {
+			break
+		}
+	}
+
+	return normalized
 }

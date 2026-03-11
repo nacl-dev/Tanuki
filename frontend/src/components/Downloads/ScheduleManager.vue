@@ -121,7 +121,7 @@ async function save() {
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 .form-field label { font-size: 12px; color: var(--text-secondary); }
-.form-row { display: flex; gap: 8px; }
+.form-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .input {
   background: var(--bg-hover);
@@ -142,6 +142,11 @@ async function save() {
   .sm-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .form-row .btn {
+    flex: 1 1 100%;
+    justify-content: center;
   }
 }
 </style>
