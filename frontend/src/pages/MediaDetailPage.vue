@@ -80,14 +80,6 @@
               <AppIcon name="book" :size="15" />
               {{ media.read_progress > 0 ? 'Resume reading' : 'Read archive' }}
             </button>
-            <button
-              v-if="media.read_progress > 0"
-              type="button"
-              class="btn btn-ghost read-btn-secondary"
-              @click="openReader(0)"
-            >
-              Start from page 1
-            </button>
           </div>
         </div>
         <div v-else class="media-placeholder">
@@ -112,15 +104,25 @@
                 @mouseenter="hoveredMediaRating = i"
               >★</button>
             </div>
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm autotag-btn"
-              :disabled="autoTagging"
-              @click="runAutoTag"
-            >
-              <AppIcon :name="autoTagging ? 'spark' : 'tag'" :size="14" />
-              {{ autoTagging ? 'Tagging…' : 'Auto-tag' }}
-            </button>
+            <div class="rating-actions">
+              <button
+                v-if="isArchive && media.read_progress > 0"
+                type="button"
+                class="btn btn-secondary btn-sm read-btn-secondary"
+                @click="openReader(0)"
+              >
+                Start Over
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm autotag-btn"
+                :disabled="autoTagging"
+                @click="runAutoTag"
+              >
+                <AppIcon :name="autoTagging ? 'spark' : 'tag'" :size="14" />
+                {{ autoTagging ? 'Tagging…' : 'Auto-tag' }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -461,12 +463,13 @@ watch(() => route.params.id, (id) => {
 }, { immediate: true })
 
 onBeforeUnmount(() => {
-  clearProgressTimers()
+  void flushPendingProgress()
 })
 
 async function loadMediaDetail(id: string) {
   const loadToken = ++activeLoadToken
   loading.value = true
+  await flushPendingProgress()
   resetDetailState()
   try {
     const res = await mediaApi.get(id)
@@ -739,7 +742,6 @@ function syncEditForm(item: Media) {
 }
 
 function resetDetailState() {
-  clearProgressTimers()
   media.value = null
   imgError.value = false
   pages.value = null
@@ -754,6 +756,27 @@ function resetDetailState() {
   thumbnailUrl.value = ''
   hoveredMediaRating.value = null
   editingMetadata.value = false
+}
+
+async function flushPendingProgress() {
+  const currentMedia = media.value
+  if (!currentMedia) {
+    clearProgressTimers()
+    return
+  }
+
+  const hadPendingArchiveSave = progressTimer !== null
+  const hadPendingVideoSave = videoProgressTimer !== null
+  clearProgressTimers()
+
+  if (hadPendingVideoSave) {
+    await mediaStore.saveProgress(currentMedia.id, Math.floor(currentMedia.read_progress || 0), 0)
+    return
+  }
+
+  if (hadPendingArchiveSave && pages.value) {
+    await mediaStore.saveProgress(currentMedia.id, currentMedia.read_progress || 0, pages.value.total_pages)
+  }
 }
 
 function clearProgressTimers() {
@@ -865,10 +888,6 @@ function isArchiveType(type: Media['type']) {
 }
 
 .read-btn:hover { background: #fbbf24; }
-
-.read-btn-secondary {
-  min-height: 42px;
-}
 
 .detail-meta { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; }
 
@@ -1021,6 +1040,12 @@ function isArchiveType(type: Media['type']) {
 }
 
 .rating-tools { display: flex; flex-direction: column; gap: 10px; }
+.rating-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .stars { display: flex; gap: 4px; }
 .star {
   appearance: none;
@@ -1053,7 +1078,10 @@ function isArchiveType(type: Media['type']) {
   color: #f87171;
 }
 
-.autotag-btn { align-self: flex-start; }
+.autotag-btn,
+.read-btn-secondary {
+  align-self: flex-start;
+}
 
 .dup-warning {
   display: inline-flex;
