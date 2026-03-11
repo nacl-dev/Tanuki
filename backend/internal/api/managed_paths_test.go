@@ -9,7 +9,10 @@ import (
 func TestEnsureManagedPathAllowsPathInsideRoot(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Clean(filepath.Join("C:\\", "media"))
+	root := filepath.Join(t.TempDir(), "media")
+	if err := os.MkdirAll(filepath.Join(root, "videos"), 0o755); err != nil {
+		t.Fatalf("create media root: %v", err)
+	}
 	path := filepath.Join(root, "videos", "sample.mp4")
 
 	got, err := ensureManagedPath(path, root)
@@ -24,8 +27,9 @@ func TestEnsureManagedPathAllowsPathInsideRoot(t *testing.T) {
 func TestEnsureManagedPathRejectsPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Clean(filepath.Join("C:\\", "media"))
-	path := filepath.Clean(filepath.Join("C:\\", "other", "sample.mp4"))
+	base := t.TempDir()
+	root := filepath.Join(base, "media")
+	path := filepath.Join(base, "other", "sample.mp4")
 
 	if _, err := ensureManagedPath(path, root); err == nil {
 		t.Fatalf("expected outside path to be rejected")
