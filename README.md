@@ -4,17 +4,7 @@ Tanuki is a self-hosted media vault for mixed libraries that include videos, ima
 
 ![Tanuki library preview with blurred covers and names](docs/assets/readme-preview-blurred.png)
 
-## Release Status
-
-Current status: ready for release
-
-Release assumptions:
-
-- deployment uses the provided Docker stack or an equivalent environment
-- PostgreSQL and Redis are reachable from the application containers
-- the `config` volume remains persistent if you rely on automatic secret generation
-
-The current release scope is a shared media library with per-user collections, downloads and schedules.
+Tanuki is designed for self-hosted deployments with a shared library model, background workers, and persistent storage for application secrets, database data, media, and generated assets.
 
 ## Core Capabilities
 
@@ -211,7 +201,7 @@ Examples:
 
 ## Multi-User Model
 
-Current behavior is intentionally mixed by product area:
+Tanuki uses a shared-library model with user-specific areas where it makes sense:
 
 - media files and tags are shared across the instance
 - collections are user-scoped
@@ -220,7 +210,7 @@ Current behavior is intentionally mixed by product area:
 - runtime and path details are visible only to admins
 - plugins are admin-only
 
-If strict per-user library isolation is required, that should be treated as a separate product change rather than assumed from the current release.
+Tanuki does not currently provide strict per-user library isolation.
 
 ## Security and Operational Notes
 
@@ -308,10 +298,9 @@ docker build --target app -t tanuki-release-check .
 Note about `go test -race`:
 
 - the race detector requires CGO
-- in the current Windows environment `CGO_ENABLED=0` and no `gcc` or `clang` toolchain is installed
-- to run race tests locally, install a C toolchain first, for example Visual Studio Build Tools, LLVM or MinGW, and make sure it is available on `PATH`
+- if your local environment does not include a C toolchain, install one first, for example Visual Studio Build Tools, LLVM or MinGW, and make sure it is available on `PATH`
 
-## Known Product Boundaries
+## Limitations
 
 - the library itself is shared across users
 - plugins are available only when Python-based plugin execution is enabled
