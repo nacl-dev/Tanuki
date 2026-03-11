@@ -90,6 +90,19 @@ Open the application:
 
 On first start, the default Compose setup creates `media/` and `inbox/` automatically. If `SECRET_KEY` is left empty, Tanuki generates one and stores it persistently. The first registered user becomes admin.
 
+### Use Prebuilt Images
+
+If you want to skip local image builds, you can use the published GitHub Container Registry images instead:
+
+```bash
+git clone https://github.com/nacl-dev/Tanuki.git
+cd Tanuki
+cp .env.example .env
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+This uses the published `tanuki-app`, `tanuki-worker` and `tanuki-downloader` images. By default it pulls `latest`. To pin a specific release, set `IMAGE_TAG` in `.env` before starting the stack.
+
 ## Configuration
 
 The stack works with sensible defaults. These are the settings you are most likely to change. See `.env.example` for the full list.
