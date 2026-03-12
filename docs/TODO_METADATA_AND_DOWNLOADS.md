@@ -82,9 +82,12 @@
 - [x] Add a first JSON runtime surface: `Json.New`, `json.SelectValue(s)`, `json.SelectNode(s)`, and a minimal `JavaScript.New().Execute("name = <json>")` bridge for JSON-backed page data
 - [x] Add a first chapter-series download path so manga root URLs can emit one archive per chapter instead of failing outright on `GetChapters()`
 - [x] Add `Dom.New(...)` plus DOM aliases like `SelectNode(s)` and attribute reads such as `SelectValue("@href")`
-- [ ] Expand chapter-oriented helpers further so `chapters.AddRange(dom/page.SelectElements(...))` and related chapter-list modules work for more real-world sites
-- [ ] Add the smallest useful non-login HTTP form/post helpers after that: `http.Post`, `http.PostResponse`, `http.GetResponse`, response cookies/body, and real `global.SetCookies`
-- [ ] Add the remaining small DOM helpers like `dom.Title` once the collection+JSON+HTTP layers are in place
+- [x] Expand chapter-oriented helpers further so `chapters.AddRange(dom/page.SelectElements(...))` and related chapter-list modules work for more real-world sites
+  Added `First()`, `Last()`, `Clear()`, and `FilterDuplicates()` for both chapters and pages collections, covering the most common module patterns for duplicate filtering, conditional chapter rebuilding, and chapter introspection
+- [x] Add the smallest useful non-login HTTP form/post helpers after that: `http.Post`, `http.PostResponse`, `http.GetResponse`, response cookies/body, and real `global.SetCookies`
+- [x] Add the remaining small DOM helpers like `dom.Title` once the collection+JSON+HTTP layers are in place
+- [ ] Add `chapters.SelectElements()`-style collection constructors that accept CSS-like selectors in addition to XPath, since some modules use mixed selector syntax
+- [ ] Add pagination helpers (`chapters.AddPage`, `chapters.NextPage`) for modules that load chapter lists across multiple pages instead of a single DOM
 - [ ] Revisit a minimal `JavaScript` host surface only for concrete high-value hentai sites after the non-JS module set is exhausted
 - [ ] Keep encrypted or login-heavy modules out of the executable runtime until the host API surface is mapped more safely
 
@@ -93,4 +96,5 @@
 - [x] Closed the first useful non-login HTTP helper batch for live modules: http.Get, http.Post, http.GetResponse, http.PostResponse, response cookies and body, and global.SetCookies
 - [x] Closed the next small DOM helper batch for live modules: dom.Title, Dom.New, and dom.New compatibility on DOM instances
 - [x] Confirmed chapter-list helpers now work on real sites that depend on chapters.AddRange and chapters.Reverse
-- [ ] Follow up on two live-run findings: collection-backed tag lists must ignore helper methods when converting tags, and large story hosts should be sanity-checked with smaller fixtures during future validation
+- [x] Follow up on two live-run findings: collection-backed tag lists must ignore helper methods when converting tags, and large story hosts should be sanity-checked with smaller fixtures during future validation
+  Fixed: `tableStrings()` and `luaCollectionValues()` now skip `lua.LTFunction` entries so collection helper methods never leak into tag/metadata strings; added 9 focused test fixtures covering the bug fix, new chapter helpers, chapter-series parsing, metadata extraction, empty/single-chapter edge cases, and reversed ordering
