@@ -64,13 +64,16 @@ The downloader now includes a first HDoujin Lua compatibility engine and wires i
 - supports `pages/chapters Reverse()` and `Sort()`
 - supports a first chapter-series path that downloads one archive per chapter when the root URL only exposes `GetChapters()`
 - downloads simple gallery-style page sets into `.cbz`
+- collection-backed tag lists now skip `*lua.LFunction` values, preventing `function:0x…` tag leaks
+- scanner skips `.tanuki-job-*` staging directories and `.part` files during walks
+- runtime helpers: `Fail`, `SetParameter`, `DecodeBase64`, `StripParameters`, `Paginator.New` (in addition to existing `RegexReplace`, `GetRooted`, `GetParameter`, `GetRoot`)
+- lightweight test fixtures simulate large-gallery and chapter-series hosts with 3–5 pages for routine validation
 
 Current deliberate limits:
 
 - no full login workflow
 - no encrypted/obfuscated modules
-- no broad chapter-series traversal yet
-- no embedded JavaScript runtime yet
+- no embedded JavaScript runtime yet (minimal `JavaScript.New().Execute("name = <json>")` bridge only)
 - no general POST/form workflow beyond plain GET navigation yet
 
 ## Highest-Impact Missing Runtime Surface

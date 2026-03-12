@@ -920,6 +920,8 @@ func luaValueToGo(value lua.LValue) any {
 		return float64(typed)
 	case lua.LString:
 		return typed.String()
+	case *lua.LFunction:
+		return nil
 	case *lua.LTable:
 		maxIndex := typed.Len()
 		if maxIndex > 0 {
@@ -931,6 +933,9 @@ func luaValueToGo(value lua.LValue) any {
 					sequential = false
 					break
 				}
+				if _, isFunc := item.(*lua.LFunction); isFunc {
+					continue
+				}
 				array = append(array, luaValueToGo(item))
 			}
 			if sequential {
@@ -940,6 +945,9 @@ func luaValueToGo(value lua.LValue) any {
 		object := map[string]any{}
 		typed.ForEach(func(key, value lua.LValue) {
 			if key.Type() == lua.LTString {
+				if _, isFunc := value.(*lua.LFunction); isFunc {
+					return
+				}
 				object[key.String()] = luaValueToGo(value)
 			}
 		})
