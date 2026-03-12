@@ -1,6 +1,9 @@
 package api
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -9,6 +12,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/downloader"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 )
 
 // DownloadHandler manages download job CRUD.
@@ -61,6 +65,11 @@ func (h *DownloadHandler) Create(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	autoTags, autoTagsRaw, err := prepareAutoTags(c.Request.Context(), h.db, body.AutoTags)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "prepare auto tags: "+err.Error())
+		return
+	}
 
 	job := models.DownloadJob{
 		ID:              uuid.NewString(),
@@ -68,15 +77,19 @@ func (h *DownloadHandler) Create(c *gin.Context) {
 		URL:             body.URL,
 		Status:          models.DownloadStatusQueued,
 		TargetDirectory: targetDirectory,
+		AutoTags:        autoTagsRaw,
 	}
 
 	if _, err := h.db.Exec(`
 		INSERT INTO download_jobs
-			(id, user_id, url, source_type, status, progress, target_directory, retry_count)
-		VALUES ($1, $2, $3, 'auto', $4, 0, $5, 0)
-	`, job.ID, job.UserID, job.URL, job.Status, job.TargetDirectory); err != nil {
+			(id, user_id, url, source_type, status, progress, target_directory, auto_tags, retry_count)
+		VALUES ($1, $2, $3, 'auto', $4, 0, $5, $6, 0)
+	`, job.ID, job.UserID, job.URL, job.Status, job.TargetDirectory, autoTagsRaw); err != nil {
 		respondError(c, http.StatusInternalServerError, "create job: "+err.Error())
 		return
+	}
+	if len(autoTags) > 0 {
+		job.AutoTags = autoTagsRaw
 	}
 
 	// Notify downloader via Redis key (fire and forget; downloader polls).
@@ -91,6 +104,7 @@ func (h *DownloadHandler) Batch(c *gin.Context) {
 	var body struct {
 		URLs            []string `json:"urls"             binding:"required"`
 		TargetDirectory string   `json:"target_directory" binding:"-"`
+		AutoTags        []string `json:"auto_tags"        binding:"-"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
@@ -101,20 +115,59 @@ func (h *DownloadHandler) Batch(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	_, autoTagsRaw, err := prepareAutoTags(c.Request.Context(), h.db, body.AutoTags)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "prepare auto tags: "+err.Error())
+		return
+	}
 
 	created := make([]string, 0, len(body.URLs))
 	for _, rawURL := range body.URLs {
 		id := uuid.NewString()
 		if _, err := h.db.Exec(`
 			INSERT INTO download_jobs
-				(id, user_id, url, source_type, status, progress, target_directory, retry_count)
-			VALUES ($1, $2, $3, 'auto', 'queued', 0, $4, 0)
-		`, id, userID, rawURL, targetDirectory); err == nil {
+				(id, user_id, url, source_type, status, progress, target_directory, auto_tags, retry_count)
+			VALUES ($1, $2, $3, 'auto', 'queued', 0, $4, $5, 0)
+		`, id, userID, rawURL, targetDirectory, autoTagsRaw); err == nil {
 			created = append(created, id)
 		}
 	}
 
 	respondOK(c, gin.H{"created": created}, nil)
+}
+
+func prepareAutoTags(ctx context.Context, db *database.DB, rawTags []string) ([]string, *json.RawMessage, error) {
+	normalized := downloader.NormalizeDownloadAutoTags(rawTags)
+	if len(normalized) == 0 {
+		return nil, nil, nil
+	}
+	if db == nil {
+		payload, err := downloader.EncodeDownloadAutoTags(normalized)
+		if err != nil {
+			return nil, nil, err
+		}
+		return normalized, payload, nil
+	}
+
+	svc := tagrules.NewService(db)
+	canonical := make([]string, 0, len(normalized))
+	for _, raw := range normalized {
+		expression, err := svc.CanonicalizeExpression(ctx, raw)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, nil, err
+		}
+		if expression == "" {
+			expression = raw
+		}
+		canonical = append(canonical, expression)
+	}
+	canonical = downloader.NormalizeDownloadAutoTags(canonical)
+
+	payload, err := downloader.EncodeDownloadAutoTags(canonical)
+	if err != nil {
+		return nil, nil, err
+	}
+	return canonical, payload, nil
 }
 
 // Get returns a single download job.

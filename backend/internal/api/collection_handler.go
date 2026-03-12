@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,10 +12,12 @@ import (
 	"github.com/lib/pq"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 )
 
 type CollectionHandler struct {
-	db *database.DB
+	db       *database.DB
+	tagRules *tagrules.Service
 }
 
 type collectionCountRow struct {
@@ -39,7 +42,7 @@ type collectionTagRow struct {
 	UsageCount int                `db:"usage_count"`
 }
 
-const collectionMatchPredicateSQL = `
+var collectionMatchPredicateSQL = `
 	cm.media_id IS NOT NULL
 	OR (
 		(c.auto_type IS NOT NULL OR c.auto_title <> '' OR c.auto_tag <> '' OR c.auto_favorite IS NOT NULL OR c.auto_min_rating IS NOT NULL)
@@ -53,7 +56,7 @@ const collectionMatchPredicateSQL = `
 				SELECT 1
 				FROM media_tags mt
 				JOIN tags t ON t.id = mt.tag_id
-				WHERE mt.media_id = m.id AND LOWER(t.name) = LOWER(c.auto_tag)
+				WHERE mt.media_id = m.id AND ` + tagExpressionMatchSQL("c.auto_tag", "t.name", "t.category") + `
 			)
 		)
 	)
@@ -124,10 +127,15 @@ func (h *CollectionHandler) Create(c *gin.Context) {
 	}
 
 	id := uuid.NewString()
+	autoTag, err := h.normalizeAutoTag(c.Request.Context(), body.AutoTag)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "resolve auto tag: "+err.Error())
+		return
+	}
 	if _, err := h.db.Exec(`
 		INSERT INTO collections (id, user_id, name, description, auto_type, auto_title, auto_tag, auto_favorite, auto_min_rating)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, id, userID, body.Name, body.Description, normalizeCollectionAutoType(body.AutoType), strings.TrimSpace(body.AutoTitle), strings.TrimSpace(body.AutoTag), body.AutoFavorite, normalizeCollectionAutoMinRating(body.AutoMinRating)); err != nil {
+	`, id, userID, body.Name, body.Description, normalizeCollectionAutoType(body.AutoType), strings.TrimSpace(body.AutoTitle), autoTag, body.AutoFavorite, normalizeCollectionAutoMinRating(body.AutoMinRating)); err != nil {
 		respondError(c, http.StatusInternalServerError, "create collection: "+err.Error())
 		return
 	}
@@ -160,7 +168,12 @@ func (h *CollectionHandler) Update(c *gin.Context) {
 	}
 	var autoTag any
 	if body.AutoTag != nil {
-		autoTag = strings.TrimSpace(*body.AutoTag)
+		normalized, err := h.normalizeAutoTag(c.Request.Context(), *body.AutoTag)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "resolve auto tag: "+err.Error())
+			return
+		}
+		autoTag = normalized
 	}
 	var autoTitle any
 	if body.AutoTitle != nil {
@@ -510,4 +523,19 @@ func normalizeCollectionAutoMinRating(value *int) *int {
 		return nil
 	}
 	return value
+}
+
+func (h *CollectionHandler) normalizeAutoTag(ctx context.Context, raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	return h.tagRulesService().CanonicalizeExpression(ctx, value)
+}
+
+func (h *CollectionHandler) tagRulesService() *tagrules.Service {
+	if h.tagRules == nil {
+		h.tagRules = tagrules.NewService(h.db)
+	}
+	return h.tagRules
 }

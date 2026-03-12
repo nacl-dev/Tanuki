@@ -32,6 +32,16 @@
       />
     </div>
 
+    <div class="form-field">
+      <label for="download-auto-tags">Auto Tags (optional)</label>
+      <TagListEditor
+        id="download-auto-tags"
+        v-model="autoTags"
+        placeholder="artist:name"
+      />
+      <p class="form-help">These tags are applied automatically to every imported item from this job or batch.</p>
+    </div>
+
     <div class="form-row">
       <button type="button" class="btn btn-primary" :disabled="!url || loading" @click="submit">
         {{ loading ? 'Adding...' : 'Add Link' }}
@@ -53,10 +63,12 @@
 import { ref } from 'vue'
 import { useDownloadStore } from '@/stores/downloadStore'
 import AppIcon from '@/components/Layout/AppIcon.vue'
+import TagListEditor from '@/components/Tags/TagListEditor.vue'
 
 const store = useDownloadStore()
 const url = ref('')
 const targetDir = ref('')
+const autoTags = ref<string[]>([])
 const loading = ref(false)
 const batchMode = ref(false)
 const batchUrls = ref('')
@@ -65,9 +77,14 @@ async function submit() {
   if (!url.value) return
   loading.value = true
   try {
-    await store.enqueue({ url: url.value, target_directory: targetDir.value || undefined })
+    await store.enqueue({
+      url: url.value,
+      target_directory: targetDir.value || undefined,
+      auto_tags: autoTags.value.length ? [...autoTags.value] : undefined,
+    })
     url.value = ''
     targetDir.value = ''
+    autoTags.value = []
   } finally {
     loading.value = false
   }
@@ -80,9 +97,10 @@ function openBatch() {
 async function submitBatch() {
   const urls = batchUrls.value.split('\n').map((u) => u.trim()).filter(Boolean)
   if (!urls.length) return
-  await store.enqueueBatch(urls, targetDir.value || undefined)
+  await store.enqueueBatch(urls, targetDir.value || undefined, autoTags.value.length ? [...autoTags.value] : undefined)
   batchUrls.value = ''
   batchMode.value = false
+  autoTags.value = []
 }
 </script>
 
@@ -109,6 +127,10 @@ async function submitBatch() {
 }
 .form-field { display: flex; flex-direction: column; gap: 6px; }
 .form-field label { font-size: 12px; color: var(--text-secondary); }
+.form-help {
+  font-size: 12px;
+  color: var(--text-muted);
+}
 .form-row { display: flex; gap: 8px; }
 
 .input {

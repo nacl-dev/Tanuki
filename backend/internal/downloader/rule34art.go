@@ -184,12 +184,12 @@ func (e *Rule34ArtEngine) extractComic(ctx context.Context, pageURL *urlpkg.URL,
 		title = cleanRule34ArtTitle(extractHTMLTitle(doc))
 	}
 
-	tags := compactStrings(append([]string{},
+	tags := compactStrings([]string{})
+	tags = append(tags, buildRule34ArtComicTags(
 		extractTextByClass(doc, "lang-cont"),
-	))
-	tags = append(tags, extractFieldItemsByClass(doc, "field--name-field-com-author")...)
-	tags = append(tags, extractFieldItemsByClass(doc, "field--name-field-com-section")...)
-	tags = compactStrings(tags)
+		extractFieldItemsByClass(doc, "field--name-field-com-author"),
+		extractFieldItemsByClass(doc, "field--name-field-com-section"),
+	)...)
 
 	poster := gallery.Images[0].ThumbURL
 	if poster == "" {
@@ -226,10 +226,11 @@ func (e *Rule34ArtEngine) extractVideo(pageURL *urlpkg.URL, doc *xhtml.Node, bod
 		title = cleanRule34ArtTitle(extractHTMLTitle(doc))
 	}
 
-	tags := append([]string{}, extractFieldItemsByClass(doc, "field--name-field-vid-tags")...)
-	tags = append(tags, extractFieldItemsByClass(doc, "field--name-field-vid-author")...)
-	tags = append(tags, extractFieldItemsByClass(doc, "field--name-field-vid-section")...)
-	tags = compactStrings(tags)
+	tags := buildRule34ArtVideoTags(
+		extractFieldItemsByClass(doc, "field--name-field-vid-tags"),
+		extractFieldItemsByClass(doc, "field--name-field-vid-author"),
+		extractFieldItemsByClass(doc, "field--name-field-vid-section"),
+	)
 
 	return &rule34ArtPage{
 		Kind:      "video",
@@ -238,6 +239,21 @@ func (e *Rule34ArtEngine) extractVideo(pageURL *urlpkg.URL, doc *xhtml.Node, bod
 		Tags:      tags,
 		VideoURL:  sources[len(sources)-1].URL,
 	}, nil
+}
+
+func buildRule34ArtComicTags(language string, authors, sections []string) []string {
+	tags := compactStrings([]string{})
+	tags = append(tags, qualifyTags("language", []string{language})...)
+	tags = append(tags, qualifyTags("artist", authors)...)
+	tags = append(tags, qualifyTags("site", sections)...)
+	return compactStrings(tags)
+}
+
+func buildRule34ArtVideoTags(rawTags, authors, sections []string) []string {
+	tags := append([]string{}, qualifyTags("genre", rawTags)...)
+	tags = append(tags, qualifyTags("artist", authors)...)
+	tags = append(tags, qualifyTags("site", sections)...)
+	return compactStrings(tags)
 }
 
 func (e *Rule34ArtEngine) downloadComic(ctx context.Context, job *models.DownloadJob, page *rule34ArtPage, dest string) error {

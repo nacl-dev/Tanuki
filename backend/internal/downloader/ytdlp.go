@@ -120,6 +120,8 @@ func (e *YtDlpEngine) Download(ctx context.Context, job *models.DownloadJob) err
 		if outputPath, err := detectLatestDownloadedFile(dest); err == nil {
 			sidecar := models.ImportMetadata{
 				Title:     meta.Title,
+				WorkTitle: meta.WorkTitle,
+				WorkIndex: meta.WorkIndex,
 				SourceURL: firstNonEmpty(strings.TrimSpace(meta.Extra["source_url"]), job.URL),
 				PosterURL: strings.TrimSpace(meta.Extra["poster_url"]),
 				Tags:      meta.Tags,
@@ -166,13 +168,7 @@ func (e *YtDlpEngine) extractMetadata(url string) (*SourceMetadata, error) {
 	if d, ok := obj["description"].(string); ok {
 		meta.Description = d
 	}
-	if tags, ok := obj["tags"].([]interface{}); ok {
-		for _, t := range tags {
-			if s, ok := t.(string); ok {
-				meta.Tags = append(meta.Tags, s)
-			}
-		}
-	}
+	meta.Tags = extractYtDlpTags(obj)
 	meta.Extra = map[string]string{}
 	if webpageURL, ok := obj["webpage_url"].(string); ok {
 		meta.Extra["source_url"] = webpageURL
@@ -180,6 +176,7 @@ func (e *YtDlpEngine) extractMetadata(url string) (*SourceMetadata, error) {
 	if thumbnail, ok := obj["thumbnail"].(string); ok {
 		meta.Extra["poster_url"] = thumbnail
 	}
+	meta.WorkTitle, meta.WorkIndex = extractYtDlpWorkMetadata(obj)
 
 	meta.TotalFiles = 1
 	return meta, nil
@@ -295,4 +292,131 @@ func detectLatestDownloadedFile(dir string) (string, error) {
 		return "", fmt.Errorf("no downloaded media file found in %s", dir)
 	}
 	return latestPath, nil
+}
+
+func extractYtDlpWorkMetadata(obj map[string]interface{}) (string, int) {
+	workIndex := firstPositiveInt(
+		ytDlpIntField(obj, "episode_number"),
+		ytDlpIntField(obj, "chapter_number"),
+		ytDlpIntField(obj, "track_number"),
+		ytDlpIntField(obj, "playlist_index"),
+	)
+	if workIndex <= 0 {
+		return "", 0
+	}
+
+	base := ytDlpStringField(obj, "series")
+	season := ytDlpStringField(obj, "season")
+	if base == "" {
+		base = ytDlpStringField(obj, "album")
+	}
+	if base == "" {
+		base = ytDlpStringField(obj, "playlist_title")
+	}
+	if base == "" {
+		base = season
+	}
+	base = cleanWorkTitle(base)
+	if base == "" {
+		return "", 0
+	}
+
+	season = cleanWorkTitle(season)
+	switch {
+	case season != "" && !strings.EqualFold(season, base):
+		base = cleanWorkTitle(base + " " + season)
+	case season == "" && ytDlpIntField(obj, "season_number") > 0:
+		base = cleanWorkTitle(base + " Season " + zeroPadInt(ytDlpIntField(obj, "season_number"), 2))
+	}
+
+	return base, workIndex
+}
+
+func extractYtDlpTags(obj map[string]interface{}) []string {
+	tags := make([]string, 0, 24)
+	tags = append(tags, ytDlpStringListField(obj, "tags")...)
+	tags = append(tags, qualifyTags("artist", ytDlpStringListField(obj, "artist", "artists", "creator", "creators"))...)
+	tags = append(tags, qualifyTags("series", ytDlpStringListField(obj, "series"))...)
+	tags = append(tags, qualifyTags("genre", ytDlpStringListField(obj, "categories", "genre", "genres"))...)
+	tags = append(tags, qualifyTags("language", ytDlpStringListField(obj, "language", "languages"))...)
+	tags = append(tags, qualifyTags("uploader", ytDlpStringListField(obj, "uploader", "channel"))...)
+	return compactStrings(tags)
+}
+
+func ytDlpStringField(obj map[string]interface{}, key string) string {
+	value, ok := obj[key]
+	if !ok || value == nil {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func ytDlpStringListField(obj map[string]interface{}, keys ...string) []string {
+	values := make([]string, 0, len(keys))
+	for _, key := range keys {
+		value, ok := obj[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			if text := strings.TrimSpace(v); text != "" {
+				values = append(values, text)
+			}
+		case []interface{}:
+			for _, item := range v {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					values = append(values, strings.TrimSpace(text))
+				}
+			}
+		case []string:
+			for _, item := range v {
+				if text := strings.TrimSpace(item); text != "" {
+					values = append(values, text)
+				}
+			}
+		}
+	}
+	return compactStrings(values)
+}
+
+func ytDlpIntField(obj map[string]interface{}, key string) int {
+	value, ok := obj[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch v := value.(type) {
+	case float64:
+		if v <= 0 {
+			return 0
+		}
+		return int(v)
+	case int:
+		if v <= 0 {
+			return 0
+		}
+		return v
+	case int64:
+		if v <= 0 {
+			return 0
+		}
+		return int(v)
+	case string:
+		return parsePositiveInt(v)
+	default:
+		return 0
+	}
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }

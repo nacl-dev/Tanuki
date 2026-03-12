@@ -50,12 +50,13 @@ RUN apk add --no-cache \
 RUN pip3 install --break-system-packages --no-cache-dir gallery-dl yt-dlp curl-cffi brotli
 
 # Create app directories
-RUN mkdir -p /app/static /media /thumbnails /downloads /app/config /app/config/plugins
+RUN mkdir -p /app/static /media /thumbnails /downloads /app/config /app/config/plugins /app/hdoujin
 
 COPY --from=frontend-builder /app/frontend/dist /app/static
 COPY --from=go-builder /bin/tanuki-server     /bin/tanuki-server
 COPY --from=go-builder /bin/tanuki-worker     /bin/tanuki-worker
 COPY --from=go-builder /bin/tanuki-downloader /bin/tanuki-downloader
+COPY --from=go-builder /app/third_party/hdoujin /app/hdoujin
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Target: app  (HTTP server + static frontend)

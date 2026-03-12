@@ -47,6 +47,8 @@ type Config struct {
 	RateLimitDelay         int // milliseconds
 	DownloaderCookiesFile  string
 	YtDlpImpersonate       string
+	HDoujinModulesPath     string
+	HDoujinModulesEnabled  bool
 
 	// Auto-tagging (v0.4)
 	SauceNAOAPIKey             string
@@ -103,6 +105,8 @@ func Load() (*Config, error) {
 		RateLimitDelay:         getEnvInt("RATE_LIMIT_DELAY", 1000),
 		DownloaderCookiesFile:  getEnv("DOWNLOADER_COOKIES_FILE", ""),
 		YtDlpImpersonate:       getEnv("YTDLP_IMPERSONATE", "chrome"),
+		HDoujinModulesPath:     getEnv("HDOUJIN_MODULES_PATH", "/app/hdoujin/modules/lua"),
+		HDoujinModulesEnabled:  getEnvBool("HDOUJIN_MODULES_ENABLED", true),
 
 		// Auto-tagging (v0.4)
 		SauceNAOAPIKey:             getEnv("SAUCENAO_API_KEY", ""),

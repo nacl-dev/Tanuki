@@ -220,16 +220,16 @@ type pornComicsPage struct {
 func (c pornComicsComic) Tags() []string {
 	values := make([]string, 0, len(c.Authors)+len(c.Sections)+len(c.Characters)+len(c.Categories))
 	for _, item := range c.Authors {
-		values = append(values, strings.TrimSpace(item.Name))
+		values = append(values, qualifyTags("artist", []string{item.Name})...)
 	}
 	for _, item := range c.Sections {
-		values = append(values, strings.TrimSpace(item.Name))
+		values = append(values, qualifyTags("site", []string{item.Name})...)
 	}
 	for _, item := range c.Characters {
-		values = append(values, strings.TrimSpace(item.Name))
+		values = append(values, qualifyTags("character", []string{item.Name})...)
 	}
 	for _, item := range c.Categories {
-		values = append(values, strings.TrimSpace(item.Name))
+		values = append(values, qualifyTags("genre", []string{item.Name})...)
 	}
 	return uniqueNonEmptyStrings(values)
 }

@@ -1,6 +1,16 @@
 import client, { appPath } from './client'
 import type { ApiResponse } from './mediaApi'
 
+export interface DownloadSourceMetadata {
+  title?: string
+  work_title?: string
+  work_index?: number
+  description?: string
+  tags?: string[]
+  total_files?: number
+  extra?: Record<string, string>
+}
+
 export interface DownloadJob {
   id: string
   url: string
@@ -12,6 +22,8 @@ export interface DownloadJob {
   total_bytes: number
   downloaded_bytes: number
   target_directory: string
+  source_metadata?: DownloadSourceMetadata
+  auto_tags?: string[]
   error_message?: string
   retry_count: number
   created_at: string
@@ -26,6 +38,7 @@ export interface DownloadSchedule {
   source_type: string
   cron_expression: string
   enabled: boolean
+  default_tags?: string[]
   target_directory: string
   last_run?: string
   next_run?: string
@@ -58,8 +71,8 @@ export const downloadApi = {
   create: (input: CreateDownloadInput) =>
     client.post<ApiResponse<DownloadJob>>('/downloads', input).then((r) => r.data),
 
-  batch: (urls: string[], target_directory?: string) =>
-    client.post<ApiResponse<{ created: string[] }>>('/downloads/batch', { urls, target_directory }).then((r) => r.data),
+  batch: (urls: string[], target_directory?: string, auto_tags?: string[]) =>
+    client.post<ApiResponse<{ created: string[] }>>('/downloads/batch', { urls, target_directory, auto_tags }).then((r) => r.data),
 
   update: (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry') =>
     client.patch<ApiResponse<DownloadJob>>(`/downloads/${id}`, { action }).then((r) => r.data),

@@ -123,6 +123,8 @@ func (e *Hentai0Engine) Download(ctx context.Context, job *models.DownloadJob) e
 	e.log.Info("hentai0: downloaded", zap.String("path", finalPath), zap.Int64("bytes", written))
 	sidecar := models.ImportMetadata{
 		Title:     video.Title,
+		WorkTitle: video.WorkTitle,
+		WorkIndex: video.WorkIndex,
 		SourceURL: video.SourceURL,
 		PosterURL: video.PosterURL,
 		Tags:      video.Tags,
@@ -140,6 +142,8 @@ func (e *Hentai0Engine) FetchMetadata(rawURL string) (*SourceMetadata, error) {
 	}
 	return &SourceMetadata{
 		Title:      video.Title,
+		WorkTitle:  video.WorkTitle,
+		WorkIndex:  video.WorkIndex,
 		TotalFiles: 1,
 		Tags:       video.Tags,
 		Extra: map[string]string{
@@ -151,6 +155,8 @@ func (e *Hentai0Engine) FetchMetadata(rawURL string) (*SourceMetadata, error) {
 
 type hentai0Video struct {
 	Title     string
+	WorkTitle string
+	WorkIndex int
 	SourceURL string
 	PosterURL string
 	Tags      []string
@@ -211,6 +217,7 @@ func (e *Hentai0Engine) extractVideo(ctx context.Context, rawURL string) (*henta
 	video := &hentai0Video{
 		Sources:   compactStrings(sources),
 		SourceURL: rawURL,
+		Tags:      []string{"site:hentai0.com"},
 	}
 
 	dataMatch := hentai0VideoDataRe.FindStringSubmatch(html)
@@ -221,7 +228,9 @@ func (e *Hentai0Engine) extractVideo(ctx context.Context, rawURL string) (*henta
 			case strings.TrimSpace(data.FullName) != "":
 				video.Title = strings.TrimSpace(data.FullName)
 			case strings.TrimSpace(data.Name) != "" && data.Episode > 0:
-				video.Title = fmt.Sprintf("%s - %02d", strings.TrimSpace(data.Name), data.Episode)
+				video.WorkTitle = strings.TrimSpace(data.Name)
+				video.WorkIndex = data.Episode
+				video.Title = fmt.Sprintf("%s - %02d", video.WorkTitle, video.WorkIndex)
 			default:
 				video.Title = strings.TrimSpace(data.Name)
 			}
@@ -236,7 +245,7 @@ func (e *Hentai0Engine) extractVideo(ctx context.Context, rawURL string) (*henta
 			}
 			for _, tag := range data.Tags {
 				if name := strings.TrimSpace(tag.Name); name != "" {
-					video.Tags = append(video.Tags, name)
+					video.Tags = append(video.Tags, qualifyTags("genre", []string{name})...)
 				}
 			}
 		}
@@ -270,20 +279,4 @@ func pathBaseWithoutExt(rawURL string) string {
 	}
 	base := filepath.Base(strings.TrimSuffix(u.Path, "/"))
 	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-func writeImportMetadata(mediaPath string, metadata models.ImportMetadata) error {
-	if strings.TrimSpace(metadata.Title) == "" &&
-		strings.TrimSpace(metadata.SourceURL) == "" &&
-		strings.TrimSpace(metadata.PosterURL) == "" &&
-		len(metadata.Tags) == 0 {
-		return nil
-	}
-
-	body, err := json.MarshalIndent(metadata, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(mediaPath+".tanuki.json", body, 0o644)
 }

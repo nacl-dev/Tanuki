@@ -58,8 +58,8 @@ export const useDownloadStore = defineStore('download', () => {
     return res.data
   }
 
-  async function enqueueBatch(urls: string[], targetDirectory?: string) {
-    await downloadApi.batch(urls, targetDirectory)
+  async function enqueueBatch(urls: string[], targetDirectory?: string, autoTags?: string[]) {
+    await downloadApi.batch(urls, targetDirectory, autoTags)
     await fetchJobs()
   }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/importmeta"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/scanner"
 	"github.com/nacl-dev/tanuki/internal/taskqueue"
@@ -153,12 +154,50 @@ var organizeFolders = map[models.MediaType]string{
 
 func (h *LibraryHandler) organizeDirectory(sourcePath, mode string, preview bool) (*organizeStats, error) {
 	stats := &organizeStats{SourcePath: sourcePath, Mode: mode, Preview: preview}
+	galleryDirs, err := detectOrganizeGalleryDirs(sourcePath)
+	if err != nil {
+		return nil, err
+	}
 
-	err := filepath.WalkDir(sourcePath, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(sourcePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
+			if galleryDirs[path] {
+				targetDirName := classifyOrganizeTarget(sourcePath, path, filepath.Base(path), models.MediaTypeDoujinshi)
+				targetPath := uniqueTargetDirectoryPath(filepath.Join(h.mediaPath, targetDirName), filepath.Base(path))
+				stats.Items = append(stats.Items, organizePreviewItem{
+					SourcePath: path,
+					TargetPath: targetPath,
+					MediaType:  string(models.MediaTypeDoujinshi),
+					Action:     mode,
+				})
+				if preview {
+					stats.Moved++
+					return filepath.SkipDir
+				}
+				if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+					return fmt.Errorf("mkdir %s: %w", filepath.Dir(targetPath), err)
+				}
+				if mode == "copy" {
+					if err := copyDirectory(path, targetPath); err != nil {
+						return err
+					}
+				} else {
+					if err := moveDirectory(path, targetPath); err != nil {
+						return err
+					}
+				}
+				if err := moveCompanionFiles(path, targetPath, mode); err != nil {
+					return err
+				}
+				stats.Moved++
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isOrganizeCompanionFile(path) {
 			return nil
 		}
 
@@ -201,6 +240,9 @@ func (h *LibraryHandler) organizeDirectory(sourcePath, mode string, preview bool
 				return err
 			}
 		}
+		if err := moveCompanionFiles(path, targetPath, mode); err != nil {
+			return err
+		}
 
 		stats.Moved++
 		return nil
@@ -210,6 +252,48 @@ func (h *LibraryHandler) organizeDirectory(sourcePath, mode string, preview bool
 	}
 
 	return stats, nil
+}
+
+func detectOrganizeGalleryDirs(sourcePath string) (map[string]bool, error) {
+	imageCounts := map[string]int{}
+	dirHasNonImageMedia := map[string]bool{}
+
+	err := filepath.WalkDir(sourcePath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if isOrganizeCompanionFile(path) {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		mediaType, ok := scanner.MediaTypeForExtension(ext)
+		if !ok {
+			return nil
+		}
+
+		dir := filepath.Dir(path)
+		if mediaType == models.MediaTypeImage {
+			imageCounts[dir]++
+		} else {
+			dirHasNonImageMedia[dir] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	galleryDirs := map[string]bool{}
+	for dir, count := range imageCounts {
+		if count >= 20 && !dirHasNonImageMedia[dir] {
+			galleryDirs[dir] = true
+		}
+	}
+	return galleryDirs, nil
 }
 
 func resolveLibraryPath(mediaRoot, inboxRoot, raw string) (string, error) {
@@ -278,6 +362,39 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
+func moveDirectory(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := copyDirectory(src, dst); err != nil {
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+func copyDirectory(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		targetPath := dst
+		if relPath != "." {
+			targetPath = filepath.Join(dst, relPath)
+		}
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return err
+		}
+		return copyFile(path, targetPath)
+	})
+}
+
 func uniqueTargetPath(dir, name string) string {
 	base := strings.TrimSuffix(name, filepath.Ext(name))
 	ext := filepath.Ext(name)
@@ -289,6 +406,55 @@ func uniqueTargetPath(dir, name string) string {
 		}
 		candidate = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, idx, ext))
 		idx++
+	}
+}
+
+func uniqueTargetDirectoryPath(dir, name string) string {
+	candidate := filepath.Join(dir, name)
+	idx := 1
+	for {
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+		candidate = filepath.Join(dir, fmt.Sprintf("%s (%d)", name, idx))
+		idx++
+	}
+}
+
+func moveCompanionFiles(sourcePath, targetPath, mode string) error {
+	for _, companionPath := range importmeta.CandidatePaths(sourcePath) {
+		if _, err := os.Stat(companionPath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("stat companion %s: %w", companionPath, err)
+		}
+
+		targetCompanionPath := targetPath + strings.TrimPrefix(companionPath, sourcePath)
+		if mode == "copy" {
+			if err := copyFile(companionPath, targetCompanionPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := moveFile(companionPath, targetCompanionPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isOrganizeCompanionFile(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	switch {
+	case strings.HasSuffix(lower, ".tanuki.json"), strings.HasSuffix(lower, ".info.json"):
+		return true
+	case strings.HasSuffix(lower, ".json"):
+		base := strings.TrimSuffix(lower, ".json")
+		_, ok := scanner.MediaTypeForExtension(filepath.Ext(base))
+		return ok
+	default:
+		return false
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/config"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/plugins"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 	"github.com/nacl-dev/tanuki/internal/taskqueue"
 	"go.uber.org/zap"
 )
@@ -72,14 +73,22 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 	taskManager := taskqueue.New(log)
 	{
 		authH := &AuthHandler{db: db, cfg: cfg}
+		mobileHandler := &MobileHandler{
+			db:        db,
+			mediaPath: cfg.MediaPath,
+			thumbPath: cfg.ThumbnailsPath,
+			cfg:       cfg,
+		}
 		authRoutes := apiGroup.Group("/auth")
 		{
 			authRoutes.POST("/register", authH.Register)
 			authRoutes.POST("/login", authH.Login)
 			authRoutes.POST("/logout", authH.Logout)
+			authRoutes.POST("/refresh", auth.AuthRequired(cfg.JWTSecret), authH.Refresh)
 			authRoutes.GET("/me", auth.AuthRequired(cfg.JWTSecret), authH.Me)
 			authRoutes.PATCH("/me", auth.AuthRequired(cfg.JWTSecret), authH.UpdateMe)
 		}
+		apiGroup.GET("/mobile/bootstrap", mobileHandler.Bootstrap)
 
 		// ─── Protected API routes ─────────────────────────────────────────────
 		protected := apiGroup.Group("", auth.AuthRequired(cfg.JWTSecret))
@@ -113,6 +122,12 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 				media.POST("/:id/phash", dh.ComputePHash)
 			}
 
+			mobile := protected.Group("/mobile")
+			{
+				mobile.GET("/media/:id/content", mobileHandler.GetContent)
+				mobile.POST("/progress/sync", mobileHandler.SyncProgress)
+			}
+
 			collections := protected.Group("/collections")
 			{
 				collections.GET("", ch.List)
@@ -125,11 +140,19 @@ func Router(db *database.DB, staticDir string, cfg *config.Config, pluginRegistr
 			}
 
 			// Tags
-			th := &TagHandler{db: db}
+			th := &TagHandler{db: db, rules: tagrules.NewService(db)}
 			tags := protected.Group("/tags")
 			{
 				tags.GET("", th.List)
 				tags.GET("/search", th.Search)
+				tags.GET("/aliases", th.ListAliases)
+				tags.POST("/aliases", th.CreateAlias)
+				tags.DELETE("/aliases/:id", th.DeleteAlias)
+				tags.GET("/implications", th.ListImplications)
+				tags.POST("/implications", th.CreateImplication)
+				tags.DELETE("/implications/:id", th.DeleteImplication)
+				tags.POST("/merge/preview", th.PreviewMerge)
+				tags.POST("/merge", th.Merge)
 				tags.POST("", th.Create)
 				tags.PATCH("/:id", th.Update)
 				tags.DELETE("/:id", th.Delete)

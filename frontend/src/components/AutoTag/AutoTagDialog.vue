@@ -49,6 +49,14 @@
       </label>
     </div>
 
+    <div class="manual-tags">
+      <h4 class="manual-tags__title">Manual Tags</h4>
+      <TagListEditor
+        v-model="manualTags"
+        placeholder="artist:name"
+      />
+    </div>
+
     <template #actions>
       <button class="btn btn-ghost" @click="$emit('close')">Cancel</button>
       <button
@@ -71,10 +79,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { AutoTagResult, SuggestedTag } from '@/api/autotagApi'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import ModalShell from '@/components/Layout/ModalShell.vue'
+import TagListEditor from '@/components/Tags/TagListEditor.vue'
+import { parseTagExpression } from '@/utils/tags'
 
 const props = defineProps<{ result: AutoTagResult }>()
 
@@ -84,13 +94,34 @@ const emit = defineEmits<{
 }>()
 
 const selected = ref<SuggestedTag[]>([...(props.result.suggested_tags ?? [])])
+const manualTags = ref<string[]>([])
+
+const allTags = computed<SuggestedTag[]>(() => {
+  const combined: SuggestedTag[] = [...selected.value]
+  const seen = new Set(combined.map((tag) => `${tag.category}:${tag.name}`.toLowerCase()))
+
+  for (const raw of manualTags.value) {
+    const parsed = parseTagExpression(raw)
+    if (!parsed.name) continue
+    const key = `${parsed.category}:${parsed.name}`.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    combined.push({
+      name: parsed.name,
+      category: parsed.category,
+      confidence: 100,
+    })
+  }
+
+  return combined
+})
 
 function selectAll() {
   selected.value = [...(props.result.suggested_tags ?? [])]
 }
 
 function apply() {
-  emit('apply', selected.value)
+  emit('apply', allTags.value)
 }
 </script>
 
@@ -139,6 +170,22 @@ function apply() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.manual-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.manual-tags__title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .tag-row {

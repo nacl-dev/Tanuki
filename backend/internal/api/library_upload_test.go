@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nacl-dev/tanuki/internal/models"
 )
 
 func TestSanitizeInboxRelativePath(t *testing.T) {
@@ -147,5 +148,74 @@ func TestUploadInboxRejectsTraversalPath(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected no files to be created, found %d entries", len(entries))
+	}
+}
+
+func TestUploadInboxWritesDefaultTagSidecars(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	inboxDir := t.TempDir()
+	handler := &LibraryHandler{inboxPath: inboxDir}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("batch_name", "tagged drop"); err != nil {
+		t.Fatalf("write batch_name: %v", err)
+	}
+	if err := writer.WriteField("default_tags", "artist:Inbox"); err != nil {
+		t.Fatalf("write default_tags: %v", err)
+	}
+	if err := writer.WriteField("default_tags", "series:Batch"); err != nil {
+		t.Fatalf("write default_tags: %v", err)
+	}
+	if err := writer.WriteField("paths", "set-a/clip.mp4"); err != nil {
+		t.Fatalf("write path: %v", err)
+	}
+
+	file, err := writer.CreateFormFile("files", "clip.mp4")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := file.Write([]byte("video-data")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/library/inbox/upload", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = req
+
+	handler.UploadInbox(context)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data inboxUploadResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.DefaultTags) != 2 {
+		t.Fatalf("expected default tags in response, got %#v", response.Data.DefaultTags)
+	}
+
+	sidecarPath := filepath.Join(inboxDir, "tagged drop", "set-a", "clip.mp4.tanuki.json")
+	bodyBytes, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		t.Fatalf("expected sidecar to exist: %v", err)
+	}
+
+	var metadata models.ImportMetadata
+	if err := json.Unmarshal(bodyBytes, &metadata); err != nil {
+		t.Fatalf("decode sidecar: %v", err)
+	}
+	if len(metadata.Tags) != 2 {
+		t.Fatalf("expected 2 tags in sidecar, got %#v", metadata.Tags)
 	}
 }

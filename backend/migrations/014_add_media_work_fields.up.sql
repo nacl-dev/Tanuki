@@ -1,0 +1,5 @@
+ALTER TABLE media
+    ADD COLUMN IF NOT EXISTS work_title TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS work_index INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS media_work_title_idx ON media (work_title);

@@ -1,6 +1,6 @@
 <template>
   <router-link
-    :to="{ path: '/', query: { tag: tag.name } }"
+    :to="{ path: '/', query: { tag: tagExpression(tag) } }"
     :class="['badge', `badge--${tag.category}`]"
   >
     {{ tag.category !== 'general' ? `${tag.category}:` : '' }}{{ tag.name }}
@@ -9,6 +9,7 @@
 
 <script setup lang="ts">
 import type { Tag } from '@/api/mediaApi'
+import { tagExpression } from '@/utils/tags'
 defineProps<{ tag: Tag }>()
 </script>
 

@@ -160,6 +160,32 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	respondOK(c, gin.H{"logged_out": true}, nil)
 }
 
+// Refresh re-issues a fresh JWT for the currently authenticated user.
+// POST /api/auth/refresh
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	var user models.User
+	err := h.db.QueryRowx(`
+		SELECT id, username, email, password_hash, display_name, role, is_active, library_pinned_collection_ids, created_at, updated_at
+		FROM users
+		WHERE id = $1 AND is_active = TRUE
+	`, userID).StructScan(&user)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "user not found or inactive")
+		return
+	}
+
+	token, err := auth.GenerateToken(user.ID, string(user.Role), h.cfg.JWTSecret, h.cfg.JWTExpiryHours)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	setAuthCookie(c, token, h.cfg.JWTExpiryHours)
+	respondOK(c, loginResponse{Token: token, User: &user}, nil)
+}
+
 // Me returns the currently authenticated user.
 // GET /api/auth/me
 func (h *AuthHandler) Me(c *gin.Context) {

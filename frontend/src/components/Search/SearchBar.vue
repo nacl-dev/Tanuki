@@ -73,6 +73,7 @@ import AppIcon from '@/components/Layout/AppIcon.vue'
 import { useMediaStore } from '@/stores/mediaStore'
 import { tagApi } from '@/api/tagApi'
 import { mediaApi, type SearchSuggestion } from '@/api/mediaApi'
+import { tagExpression } from '@/utils/tags'
 
 const mediaStore = useMediaStore()
 const router = useRouter()
@@ -123,8 +124,8 @@ const debouncedSuggest = useDebounceFn(async (value: string) => {
 
   const tagSuggestions: SearchSuggestion[] = (tagsRes.status === 'fulfilled' ? (tagsRes.value.data ?? []) : []).map((tag) => ({
     type: 'tag',
-    value: tag.name,
-    label: tag.name,
+    value: tagExpression(tag),
+    label: tagExpression(tag),
   }))
 
   const titleSuggestions = titlesRes.status === 'fulfilled' ? (titlesRes.value.data ?? []) : []

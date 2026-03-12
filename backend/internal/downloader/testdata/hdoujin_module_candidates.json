@@ -1,0 +1,37 @@
+[
+  {
+    "module": "Gelbooru.lua",
+    "site": "gelbooru.com",
+    "url": "https://gelbooru.com/index.php?page=post&s=view&id=123456",
+    "expected_engine": "*downloader.BooruEngine",
+    "coverage": "native-engine"
+  },
+  {
+    "module": "Danbooru.lua",
+    "site": "danbooru.donmai.us",
+    "url": "https://danbooru.donmai.us/posts/123456",
+    "expected_engine": "*downloader.DanbooruEngine",
+    "coverage": "native-engine"
+  },
+  {
+    "module": "FAKKU.lua",
+    "site": "fakku.net",
+    "url": "https://www.fakku.net/hentai/example-gallery-english",
+    "expected_engine": "*downloader.GalleryDLEngine",
+    "coverage": "gallery-dl-fallback"
+  },
+  {
+    "module": "Hitomi.lua",
+    "site": "hitomi.la",
+    "url": "https://hitomi.la/doujinshi/example-title-123456.html",
+    "expected_engine": "*downloader.GalleryDLEngine",
+    "coverage": "gallery-dl-fallback"
+  },
+  {
+    "module": "NHentai.lua",
+    "site": "nhentai.net",
+    "url": "https://nhentai.net/g/123456/",
+    "expected_engine": "*downloader.GalleryDLEngine",
+    "coverage": "gallery-dl-fallback"
+  }
+]

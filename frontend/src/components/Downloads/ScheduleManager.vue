@@ -28,6 +28,14 @@
         <label for="schedule-cron">Cron expression</label>
         <input id="schedule-cron" v-model="form.cron_expression" class="input" placeholder="0 3 * * *" />
       </div>
+      <div class="form-field">
+        <label for="schedule-tags">Default tags</label>
+        <TagListEditor
+          id="schedule-tags"
+          v-model="form.default_tags"
+          placeholder="artist:name"
+        />
+      </div>
       <div class="form-row">
         <button type="button" class="btn btn-primary btn-sm" @click="save">Save</button>
         <button type="button" class="btn btn-ghost btn-sm" @click="showForm = false">Cancel</button>
@@ -41,6 +49,9 @@
         <div class="sm-item__info">
           <span class="sm-item__name">{{ sched.name }}</span>
           <span class="sm-item__cron">{{ sched.cron_expression }}</span>
+          <div v-if="sched.default_tags?.length" class="sm-item__tags">
+            <span v-for="tag in sched.default_tags" :key="tag" class="sm-item__tag">{{ tag }}</span>
+          </div>
         </div>
         <div class="sm-item__actions">
           <button
@@ -59,6 +70,7 @@
 import { ref, onMounted, reactive } from 'vue'
 import { useDownloadStore } from '@/stores/downloadStore'
 import AppIcon from '@/components/Layout/AppIcon.vue'
+import TagListEditor from '@/components/Tags/TagListEditor.vue'
 
 const store = useDownloadStore()
 const showForm = ref(false)
@@ -70,6 +82,7 @@ const form = reactive({
   cron_expression: '0 3 * * *',
   enabled: true,
   target_directory: '',
+  default_tags: [] as string[],
 })
 
 onMounted(() => store.fetchSchedules())
@@ -77,7 +90,7 @@ onMounted(() => store.fetchSchedules())
 async function save() {
   await store.createSchedule(form as any)
   showForm.value = false
-  Object.assign(form, { name: '', url_pattern: '', cron_expression: '0 3 * * *' })
+  Object.assign(form, { name: '', url_pattern: '', cron_expression: '0 3 * * *', default_tags: [] })
 }
 </script>
 
@@ -115,6 +128,18 @@ async function save() {
 .sm-item__info { display: flex; flex-direction: column; gap: 2px; }
 .sm-item__name { font-weight: 500; }
 .sm-item__cron { font-size: 12px; color: var(--text-muted); font-family: monospace; }
+.sm-item__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sm-item__tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 .sm-item__actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .active { background: var(--accent-dimmed); color: var(--accent); }

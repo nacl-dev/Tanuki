@@ -51,9 +51,14 @@ func main() {
 		dl.NewImageGalleryEngine(log),
 		dl.NewDanbooruEngine(log),
 		dl.NewBooruEngine(log),
+	}
+	if cfg.HDoujinModulesEnabled {
+		engines = append(engines, dl.NewHDoujinLuaEngine(cfg.HDoujinModulesPath, cfg.DownloaderCookiesFile, log))
+	}
+	engines = append(engines,
 		dl.NewGalleryDLEngine(configDir+"/gallery-dl.conf", cfg.DownloaderCookiesFile, log),
 		dl.NewHTTPEngine(cfg.DownloaderCookiesFile, log),
-	}
+	)
 
 	manager := dl.NewManager(
 		db,

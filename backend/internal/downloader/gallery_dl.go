@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nacl-dev/tanuki/internal/importmeta"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"go.uber.org/zap"
 )
@@ -153,10 +154,24 @@ func (e *GalleryDLEngine) FetchMetadata(url string) (*SourceMetadata, error) {
 	var meta SourceMetadata
 	lines := strings.SplitN(string(out), "\n", 2)
 	if len(lines) > 0 {
-		var obj map[string]interface{}
-		if jsonErr := json.Unmarshal([]byte(lines[0]), &obj); jsonErr == nil {
-			if t, ok := obj["title"].(string); ok {
-				meta.Title = t
+		if parsed, recognized, jsonErr := importmeta.ParseGalleryDLMetadata([]byte(lines[0])); jsonErr == nil && recognized && parsed != nil {
+			meta.Title = parsed.Title
+			meta.WorkTitle = parsed.WorkTitle
+			meta.WorkIndex = parsed.WorkIndex
+			meta.Tags = parsed.Tags
+			meta.Extra = map[string]string{}
+			if strings.TrimSpace(parsed.SourceURL) != "" {
+				meta.Extra["source_url"] = strings.TrimSpace(parsed.SourceURL)
+			}
+			if strings.TrimSpace(parsed.PosterURL) != "" {
+				meta.Extra["poster_url"] = strings.TrimSpace(parsed.PosterURL)
+			}
+		} else {
+			var obj map[string]interface{}
+			if jsonErr := json.Unmarshal([]byte(lines[0]), &obj); jsonErr == nil {
+				if t, ok := obj["title"].(string); ok {
+					meta.Title = t
+				}
 			}
 		}
 	}

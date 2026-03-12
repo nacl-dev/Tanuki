@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,13 +13,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nacl-dev/tanuki/internal/downloader"
+	"github.com/nacl-dev/tanuki/internal/importmeta"
+	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/scanner"
 )
 
 type inboxUploadResult struct {
-	BatchName  string `json:"batch_name"`
-	SourcePath string `json:"source_path"`
-	FileCount  int    `json:"file_count"`
-	TotalBytes int64  `json:"total_bytes"`
+	BatchName   string   `json:"batch_name"`
+	SourcePath  string   `json:"source_path"`
+	FileCount   int      `json:"file_count"`
+	TotalBytes  int64    `json:"total_bytes"`
+	DefaultTags []string `json:"default_tags,omitempty"`
 }
 
 // UploadInbox stores uploaded files in a dedicated inbox batch folder so they
@@ -46,6 +52,11 @@ func (h *LibraryHandler) UploadInbox(c *gin.Context) {
 	}
 
 	batchName := uniqueInboxBatchName(h.inboxPath, generateInboxBatchName(firstNonEmpty(form.Value["batch_name"]...)))
+	defaultTags, _, err := prepareAutoTags(c.Request.Context(), h.db, form.Value["default_tags"])
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "prepare default tags: "+err.Error())
+		return
+	}
 	relativePaths := form.Value["paths"]
 	sanitizedPaths := make([]string, 0, len(files))
 	for index, fileHeader := range files {
@@ -73,6 +84,7 @@ func (h *LibraryHandler) UploadInbox(c *gin.Context) {
 	}
 
 	var totalBytes int64
+	savedMediaPaths := make([]string, 0, len(files))
 	for index, fileHeader := range files {
 		targetPath, err := prepareInboxTargetPath(batchRoot, sanitizedPaths[index])
 		if err != nil {
@@ -92,13 +104,27 @@ func (h *LibraryHandler) UploadInbox(c *gin.Context) {
 			return
 		}
 		totalBytes += fileHeader.Size
+		if _, ok := scanner.MediaTypeForExtension(strings.ToLower(filepath.Ext(targetPath))); ok {
+			savedMediaPaths = append(savedMediaPaths, targetPath)
+		}
+	}
+
+	if len(defaultTags) > 0 {
+		for _, mediaPath := range savedMediaPaths {
+			if err := mergeInboxImportMetadata(mediaPath, models.ImportMetadata{Tags: defaultTags}); err != nil {
+				_ = os.RemoveAll(batchRoot)
+				respondError(c, http.StatusInternalServerError, "write upload metadata: "+err.Error())
+				return
+			}
+		}
 	}
 
 	respondOK(c, inboxUploadResult{
-		BatchName:  batchName,
-		SourcePath: filepath.ToSlash(filepath.Join("inbox", batchName)),
-		FileCount:  len(files),
-		TotalBytes: totalBytes,
+		BatchName:   batchName,
+		SourcePath:  filepath.ToSlash(filepath.Join("inbox", batchName)),
+		FileCount:   len(files),
+		TotalBytes:  totalBytes,
+		DefaultTags: defaultTags,
 	}, nil)
 }
 
@@ -210,4 +236,40 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func mergeInboxImportMetadata(mediaPath string, updates models.ImportMetadata) error {
+	metadata, err := importmeta.LoadMedia(mediaPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		metadata = nil
+	}
+	if metadata == nil {
+		metadata = &models.ImportMetadata{}
+	}
+
+	if title := strings.TrimSpace(updates.Title); title != "" && strings.TrimSpace(metadata.Title) == "" {
+		metadata.Title = title
+	}
+	if workTitle := strings.TrimSpace(updates.WorkTitle); workTitle != "" && strings.TrimSpace(metadata.WorkTitle) == "" {
+		metadata.WorkTitle = workTitle
+	}
+	if updates.WorkIndex > 0 && metadata.WorkIndex == 0 {
+		metadata.WorkIndex = updates.WorkIndex
+	}
+	if sourceURL := strings.TrimSpace(updates.SourceURL); sourceURL != "" && strings.TrimSpace(metadata.SourceURL) == "" {
+		metadata.SourceURL = sourceURL
+	}
+	if posterURL := strings.TrimSpace(updates.PosterURL); posterURL != "" && strings.TrimSpace(metadata.PosterURL) == "" {
+		metadata.PosterURL = posterURL
+	}
+	metadata.Tags = downloader.NormalizeDownloadAutoTags(append(metadata.Tags, updates.Tags...))
+
+	body, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(mediaPath+".tanuki.json", body, 0o644)
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -23,10 +24,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/remotehttp"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -37,6 +38,7 @@ type MediaHandler struct {
 	db        *database.DB
 	mediaPath string
 	thumbPath string
+	tagRules  *tagrules.Service
 }
 
 // List returns a paginated list of media items with optional filtering.
@@ -72,6 +74,7 @@ func (h *MediaHandler) List(c *gin.Context) {
 
 	// Build a shared WHERE clause so that the count and the data query use the
 	// same filters.
+	ctx := c.Request.Context()
 	whereClause := ` WHERE m.deleted_at IS NULL`
 	args := []interface{}{}
 	argIdx := 1
@@ -84,11 +87,18 @@ func (h *MediaHandler) List(c *gin.Context) {
 	if q.Q != "" {
 		whereClause += ` AND (
 			m.title ILIKE $` + itoa(argIdx) + `
+			OR m.work_title ILIKE $` + itoa(argIdx) + `
 			OR m.id IN (
 				SELECT mt.media_id
 				FROM media_tags mt
 				JOIN tags t ON t.id = mt.tag_id
 				WHERE t.name ILIKE $` + itoa(argIdx) + `
+				   OR EXISTS (
+						SELECT 1
+						FROM tag_aliases ta
+						WHERE ta.tag_id = t.id
+						  AND ta.alias_name ILIKE $` + itoa(argIdx) + `
+				   )
 			)
 		)`
 		args = append(args, "%"+q.Q+"%")
@@ -113,18 +123,29 @@ func (h *MediaHandler) List(c *gin.Context) {
 	}
 	// Single tag filter.
 	if q.Tag != "" {
+		canonicalTag, err := h.tagRulesService().CanonicalizeExpression(ctx, q.Tag)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "resolve tag filter: "+err.Error())
+			return
+		}
+		q.Tag = canonicalTag
 		whereClause += ` AND m.id IN (
 			SELECT mt.media_id
 			FROM media_tags mt
 			JOIN tags t ON t.id = mt.tag_id
-			WHERE LOWER(t.name) = LOWER($` + itoa(argIdx) + `)
+			WHERE ` + tagExpressionMatchSQL(`$`+itoa(argIdx), "t.name", "t.category") + `
 		)`
 		args = append(args, q.Tag)
 		argIdx++
 	}
 	// Multi-tag filter (AND logic): each tag listed in ?tags= must be present.
 	if q.Tags != "" {
-		for _, tag := range splitTags(q.Tags) {
+		for _, rawTag := range splitTags(q.Tags) {
+			tag, err := h.tagRulesService().CanonicalizeExpression(ctx, rawTag)
+			if err != nil {
+				respondError(c, http.StatusInternalServerError, "resolve tag filters: "+err.Error())
+				return
+			}
 			if tag == "" {
 				continue
 			}
@@ -132,7 +153,7 @@ func (h *MediaHandler) List(c *gin.Context) {
 				SELECT mt.media_id
 				FROM media_tags mt
 				JOIN tags t ON t.id = mt.tag_id
-				WHERE LOWER(t.name) = LOWER($` + itoa(argIdx) + `)
+				WHERE ` + tagExpressionMatchSQL(`$`+itoa(argIdx), "t.name", "t.category") + `
 			)`
 			args = append(args, tag)
 			argIdx++
@@ -214,14 +235,40 @@ func (h *MediaHandler) Suggestions(c *gin.Context) {
 
 			SELECT
 				'title' AS type,
+				m.work_title AS value,
+				m.work_title AS label,
+				1 AS rank
+			FROM media m
+			WHERE m.deleted_at IS NULL
+				AND m.work_title <> ''
+				AND m.work_title ILIKE $1
+			GROUP BY m.work_title
+
+			UNION ALL
+
+			SELECT
+				'title' AS type,
 				m.title AS value,
 				m.title AS label,
-				1 AS rank
+				2 AS rank
 			FROM media m
 			WHERE m.deleted_at IS NULL
 				AND m.title <> ''
 				AND m.title ILIKE $2
 			GROUP BY m.title
+
+			UNION ALL
+
+			SELECT
+				'title' AS type,
+				m.work_title AS value,
+				m.work_title AS label,
+				3 AS rank
+			FROM media m
+			WHERE m.deleted_at IS NULL
+				AND m.work_title <> ''
+				AND m.work_title ILIKE $2
+			GROUP BY m.work_title
 		) s
 		ORDER BY rank ASC, label ASC
 		LIMIT 12
@@ -246,6 +293,8 @@ func (h *MediaHandler) Update(c *gin.Context) {
 
 	var body struct {
 		Title        *string  `json:"title"`
+		WorkTitle    *string  `json:"work_title"`
+		WorkIndex    *int     `json:"work_index"`
 		Rating       *int     `json:"rating"`
 		Favorite     *bool    `json:"favorite"`
 		Language     *string  `json:"language"`
@@ -272,20 +321,30 @@ func (h *MediaHandler) Update(c *gin.Context) {
 		}
 		createdAt = parsed
 	}
+	if body.WorkTitle != nil {
+		trimmed := strings.TrimSpace(*body.WorkTitle)
+		body.WorkTitle = &trimmed
+	}
+	if body.WorkIndex != nil && *body.WorkIndex < 0 {
+		respondError(c, http.StatusBadRequest, "work_index must be 0 or greater")
+		return
+	}
 
 	_, err := h.db.Exec(`
 		UPDATE media SET
 			title         = COALESCE($2, title),
-			rating        = COALESCE($3, rating),
-			favorite      = COALESCE($4, favorite),
-			language      = COALESCE($5, language),
-			source_url    = COALESCE($6, source_url),
-			created_at    = COALESCE($7, created_at),
-			read_progress = COALESCE($8, read_progress),
-			read_total    = COALESCE($9, read_total),
+			work_title    = COALESCE($3, work_title),
+			work_index    = COALESCE($4, work_index),
+			rating        = COALESCE($5, rating),
+			favorite      = COALESCE($6, favorite),
+			language      = COALESCE($7, language),
+			source_url    = COALESCE($8, source_url),
+			created_at    = COALESCE($9, created_at),
+			read_progress = COALESCE($10, read_progress),
+			read_total    = COALESCE($11, read_total),
 			updated_at    = NOW()
 		WHERE id = $1 AND deleted_at IS NULL
-	`, id, body.Title, body.Rating, body.Favorite, body.Language, body.SourceURL,
+	`, id, body.Title, body.WorkTitle, body.WorkIndex, body.Rating, body.Favorite, body.Language, body.SourceURL,
 		createdAt, body.ReadProgress, body.ReadTotal)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "update media: "+err.Error())
@@ -293,7 +352,7 @@ func (h *MediaHandler) Update(c *gin.Context) {
 	}
 
 	if body.TagNames != nil {
-		if err := h.replaceMediaTags(id, body.TagNames); err != nil {
+		if err := h.replaceMediaTags(c.Request.Context(), id, body.TagNames); err != nil {
 			respondError(c, http.StatusInternalServerError, "update media tags: "+err.Error())
 			return
 		}
@@ -597,7 +656,7 @@ func listRARImages(path string) ([]string, error) {
 	return names, nil
 }
 
-// ListPages returns the list of image pages inside an archive.
+// ListPages returns the list of image pages inside an archive or gallery folder.
 // GET /api/media/:id/pages
 func (h *MediaHandler) ListPages(c *gin.Context) {
 	id := c.Param("id")
@@ -608,27 +667,16 @@ func (h *MediaHandler) ListPages(c *gin.Context) {
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(item.FilePath))
-	var names []string
-	var err error
-
-	archivePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
+	names, err := listPageNamesForMediaPath(item.FilePath, h.mediaPath)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "archive path is outside managed media roots")
-		return
-	}
-
-	switch ext {
-	case ".zip", ".cbz":
-		names, err = listZipImages(archivePath)
-	case ".cbr", ".rar":
-		names, err = listRARImages(archivePath)
-	default:
-		respondError(c, http.StatusBadRequest, "media is not an archive type")
-		return
-	}
-
-	if err != nil {
+		if errors.Is(err, errUnsupportedPagedMedia) {
+			respondError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			respondError(c, http.StatusNotFound, "file not found on disk")
+			return
+		}
 		respondError(c, http.StatusInternalServerError, "list pages: "+err.Error())
 		return
 	}
@@ -644,7 +692,7 @@ func (h *MediaHandler) ListPages(c *gin.Context) {
 	}, nil)
 }
 
-// ServePage streams a single page image from an archive.
+// ServePage streams a single page image from an archive or gallery folder.
 // GET /api/media/:id/pages/:page
 func (h *MediaHandler) ServePage(c *gin.Context) {
 	id := c.Param("id")
@@ -662,26 +710,18 @@ func (h *MediaHandler) ServePage(c *gin.Context) {
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(item.FilePath))
 	c.Header("Cache-Control", "private, max-age=86400")
 
-	archivePath, err := ensureManagedPath(item.FilePath, h.mediaPath)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "archive path is outside managed media roots")
-		return
-	}
-
-	switch ext {
-	case ".zip", ".cbz":
-		if err := serveZipPage(c, archivePath, pageIdx); err != nil {
-			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
+	if err := servePageForMediaPath(c, item.FilePath, h.mediaPath, pageIdx); err != nil {
+		if errors.Is(err, errUnsupportedPagedMedia) {
+			respondError(c, http.StatusBadRequest, err.Error())
+			return
 		}
-	case ".cbr", ".rar":
-		if err := serveRARPage(c, archivePath, pageIdx); err != nil {
-			respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
+		if errors.Is(err, os.ErrNotExist) {
+			respondError(c, http.StatusNotFound, "file not found on disk")
+			return
 		}
-	default:
-		respondError(c, http.StatusBadRequest, "media is not an archive type")
+		respondError(c, http.StatusInternalServerError, "serve page: "+err.Error())
 	}
 }
 
@@ -750,7 +790,7 @@ func serveRARPage(c *gin.Context, path string, pageIdx int) error {
 	return nil
 }
 
-func (h *MediaHandler) replaceMediaTags(mediaID string, tagNames []string) error {
+func (h *MediaHandler) replaceMediaTags(ctx context.Context, mediaID string, tagNames []string) error {
 	tx, err := h.db.Beginx()
 	if err != nil {
 		return err
@@ -761,58 +801,22 @@ func (h *MediaHandler) replaceMediaTags(mediaID string, tagNames []string) error
 		return err
 	}
 
-	seen := map[string]struct{}{}
-	for _, raw := range tagNames {
-		name := strings.ToLower(strings.TrimSpace(raw))
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
+	tags, err := tagrules.NewService(tx).ResolveOrCreate(ctx, tagNames)
+	if err != nil {
+		return err
+	}
 
-		tagID, err := ensureGeneralTag(tx, name)
-		if err != nil {
-			return err
-		}
+	for _, tag := range tags {
 		if _, err := tx.Exec(`
 			INSERT INTO media_tags (media_id, tag_id)
 			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
-		`, mediaID, tagID); err != nil {
+		`, mediaID, tag.ID); err != nil {
 			return err
 		}
 	}
 
 	return tx.Commit()
-}
-
-type sqlRunner interface {
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Get(dest interface{}, query string, args ...interface{}) error
-}
-
-func ensureGeneralTag(db sqlRunner, name string) (string, error) {
-	var tag models.Tag
-	err := db.Get(&tag, `SELECT * FROM tags WHERE name = $1`, name)
-	if err == nil {
-		return tag.ID, nil
-	}
-
-	id := uuid.NewString()
-	if _, err := db.Exec(`
-		INSERT INTO tags (id, name, category, usage_count)
-		VALUES ($1, $2, $3, 0)
-		ON CONFLICT (name) DO NOTHING
-	`, id, name, models.TagCategoryGeneral); err != nil {
-		return "", err
-	}
-
-	if err := db.Get(&tag, `SELECT * FROM tags WHERE name = $1`, name); err != nil {
-		return "", err
-	}
-	return tag.ID, nil
 }
 
 func removeIfExists(path string) error {
@@ -836,6 +840,13 @@ func (h *MediaHandler) respondMedia(c *gin.Context, id string, incrementView boo
 		return
 	}
 	respondOK(c, item, nil)
+}
+
+func (h *MediaHandler) tagRulesService() *tagrules.Service {
+	if h.tagRules == nil {
+		h.tagRules = tagrules.NewService(h.db)
+	}
+	return h.tagRules
 }
 
 func (h *MediaHandler) findMediaByID(id, requesterUserID string, incrementView bool) (models.Media, error) {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 
@@ -8,11 +9,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 )
 
 // TagHandler handles CRUD operations for tags.
 type TagHandler struct {
-	db *database.DB
+	db    *database.DB
+	rules *tagrules.Service
 }
 
 const tagUsageSelect = `
@@ -64,13 +67,40 @@ func (h *TagHandler) Search(c *gin.Context) {
 		return
 	}
 
+	lowerQ := strings.ToLower(q)
+	namespace, remainder, hasNamespace := strings.Cut(lowerQ, ":")
+	if hasNamespace {
+		if category, ok := models.TagCategoryForNamespace(namespace); ok {
+			tags, err := h.searchWithinCategory(category, strings.TrimSpace(remainder))
+			if err != nil {
+				respondError(c, http.StatusInternalServerError, "search tags: "+err.Error())
+				return
+			}
+			respondOK(c, tags, nil)
+			return
+		}
+	}
+
 	var tags []models.Tag
 	if err := h.db.Select(&tags, `
 	`+tagUsageSelect+`
 		WHERE t.name ILIKE $1 OR t.name ILIKE $2
+		   OR EXISTS (
+				SELECT 1
+				FROM tag_aliases ta
+				WHERE ta.tag_id = t.id
+				  AND (ta.alias_name ILIKE $1 OR ta.alias_name ILIKE $2)
+		   )
 		GROUP BY t.id, t.name, t.category
 		ORDER BY
-			CASE WHEN t.name ILIKE $1 THEN 0 ELSE 1 END,
+			CASE
+				WHEN t.name ILIKE $1 THEN 0
+				WHEN EXISTS (
+					SELECT 1 FROM tag_aliases ta
+					WHERE ta.tag_id = t.id AND ta.alias_name ILIKE $1
+				) THEN 1
+				ELSE 2
+			END,
 			usage_count DESC,
 			t.name ASC
 		LIMIT 20
@@ -80,6 +110,48 @@ func (h *TagHandler) Search(c *gin.Context) {
 	}
 
 	respondOK(c, tags, nil)
+}
+
+func (h *TagHandler) searchWithinCategory(category models.TagCategory, term string) ([]models.Tag, error) {
+	var tags []models.Tag
+	if term == "" {
+		err := h.db.Select(&tags, `
+	`+tagUsageSelect+`
+			WHERE t.category = $1
+			GROUP BY t.id, t.name, t.category
+			ORDER BY usage_count DESC, t.name ASC
+			LIMIT 20
+		`, category)
+		return tags, err
+	}
+
+	err := h.db.Select(&tags, `
+	`+tagUsageSelect+`
+		WHERE t.category = $1
+		  AND (
+			t.name ILIKE $2 OR t.name ILIKE $3
+			OR EXISTS (
+				SELECT 1
+				FROM tag_aliases ta
+				WHERE ta.tag_id = t.id
+				  AND (ta.alias_name ILIKE $2 OR ta.alias_name ILIKE $3)
+			)
+		  )
+		GROUP BY t.id, t.name, t.category
+		ORDER BY
+			CASE
+				WHEN t.name ILIKE $2 THEN 0
+				WHEN EXISTS (
+					SELECT 1 FROM tag_aliases ta
+					WHERE ta.tag_id = t.id AND ta.alias_name ILIKE $2
+				) THEN 1
+				ELSE 2
+			END,
+			usage_count DESC,
+			t.name ASC
+		LIMIT 20
+	`, category, term+"%", "%"+term+"%")
+	return tags, err
 }
 
 // Create adds a new tag.
@@ -178,4 +250,63 @@ func (h *TagHandler) Delete(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func (h *TagHandler) ruleService() *tagrules.Service {
+	if h.rules == nil {
+		h.rules = tagrules.NewService(h.db)
+	}
+	return h.rules
+}
+
+func (h *TagHandler) hydrateAliasRules(rows []models.TagAlias) error {
+	for i := range rows {
+		var tag models.Tag
+		if err := h.db.Get(&tag, `
+			SELECT id, name, category, usage_count
+			FROM tags
+			WHERE id = $1
+		`, rows[i].TagID); err != nil {
+			return err
+		}
+		rows[i].Tag = tag
+	}
+	return nil
+}
+
+func (h *TagHandler) hydrateImplicationRules(rows []models.TagImplication) error {
+	for i := range rows {
+		var source models.Tag
+		if err := h.db.Get(&source, `
+			SELECT id, name, category, usage_count
+			FROM tags
+			WHERE id = $1
+		`, rows[i].TagID); err != nil {
+			return err
+		}
+		var implied models.Tag
+		if err := h.db.Get(&implied, `
+			SELECT id, name, category, usage_count
+			FROM tags
+			WHERE id = $1
+		`, rows[i].ImpliedTagID); err != nil {
+			return err
+		}
+		rows[i].Tag = source
+		rows[i].ImpliedTag = implied
+	}
+	return nil
+}
+
+func (h *TagHandler) resolveRuleTarget(c *gin.Context, raw string) (models.Tag, bool) {
+	tag, err := h.ruleService().ResolveExistingOrCreate(c.Request.Context(), raw)
+	if err == nil {
+		return tag, true
+	}
+	if err == sql.ErrNoRows {
+		respondError(c, http.StatusBadRequest, "tag is required")
+		return models.Tag{}, false
+	}
+	respondError(c, http.StatusInternalServerError, "resolve tag: "+err.Error())
+	return models.Tag{}, false
 }

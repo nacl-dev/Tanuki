@@ -124,9 +124,9 @@ func (s *Scheduler) addLocked(sched models.DownloadSchedule, fingerprint string)
 		`, sched.ID, now, next)
 
 		_, _ = s.db.Exec(`
-			INSERT INTO download_jobs (id, user_id, url, source_type, status, progress, target_directory, retry_count)
-			VALUES (gen_random_uuid(), $1, $2, $3, 'queued', 0, $4, 0)
-		`, sched.UserID, sched.URLPattern, sched.SourceType, sched.TargetDirectory)
+			INSERT INTO download_jobs (id, user_id, url, source_type, status, progress, target_directory, auto_tags, retry_count)
+			VALUES (gen_random_uuid(), $1, $2, $3, 'queued', 0, $4, $5, 0)
+		`, sched.UserID, sched.URLPattern, sched.SourceType, sched.TargetDirectory, sched.DefaultTags)
 	})
 	if err != nil {
 		return err
@@ -157,5 +157,9 @@ func nextScheduledRun(spec string, from time.Time) *time.Time {
 }
 
 func scheduleFingerprint(sched models.DownloadSchedule) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%t", sched.CronExpression, sched.URLPattern, sched.SourceType, sched.TargetDirectory, sched.Enabled)
+	defaultTags := ""
+	if sched.DefaultTags != nil {
+		defaultTags = string(*sched.DefaultTags)
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%t", sched.CronExpression, sched.URLPattern, sched.SourceType, sched.TargetDirectory, defaultTags, sched.Enabled)
 }

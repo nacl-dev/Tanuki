@@ -13,6 +13,7 @@ import (
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/scanner"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"go.uber.org/zap"
 )
@@ -187,6 +188,9 @@ func (m *Manager) process(ctx context.Context, job models.DownloadJob) {
 			if err := m.refreshLibrary(ctx, movedPaths); err != nil {
 				m.log.Warn("download: refresh library failed", zap.String("id", job.ID), zap.Error(err))
 			}
+			if err := m.applyJobAutoTags(ctx, &job, movedPaths); err != nil {
+				m.log.Warn("download: apply auto tags failed", zap.String("id", job.ID), zap.Error(err))
+			}
 		}
 
 		m.setStatus(job.ID, models.DownloadStatusCompleted, "")
@@ -299,6 +303,43 @@ func (m *Manager) refreshLibrary(ctx context.Context, movedPaths []string) error
 			continue
 		}
 		m.db.Exec(`UPDATE media SET thumbnail_path = $1, updated_at = NOW() WHERE id = $2`, thumbPath, media.ID) //nolint:errcheck
+	}
+	return nil
+}
+
+func (m *Manager) applyJobAutoTags(ctx context.Context, job *models.DownloadJob, movedPaths []string) error {
+	autoTags := DecodeDownloadAutoTags(job.AutoTags)
+	if len(autoTags) == 0 || len(movedPaths) == 0 {
+		return nil
+	}
+
+	resolved, err := tagrules.NewService(m.db).ResolveOrCreate(ctx, autoTags)
+	if err != nil {
+		return err
+	}
+	if len(resolved) == 0 {
+		return nil
+	}
+
+	for _, path := range movedPaths {
+		var mediaID string
+		if err := m.db.GetContext(ctx, &mediaID, `
+			SELECT id
+			FROM media
+			WHERE file_path = $1 AND deleted_at IS NULL
+			LIMIT 1
+		`, path); err != nil {
+			continue
+		}
+		for _, tag := range resolved {
+			if _, err := m.db.ExecContext(ctx, `
+				INSERT INTO media_tags (media_id, tag_id)
+				VALUES ($1, $2)
+				ON CONFLICT DO NOTHING
+			`, mediaID, tag.ID); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

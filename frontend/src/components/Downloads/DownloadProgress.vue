@@ -6,7 +6,7 @@
           <AppIcon name="download" :size="16" />
         </div>
         <div class="dl-item__source-copy">
-          <span class="dl-item__url" :title="job.url">{{ shortUrl }}</span>
+          <span class="dl-item__url" :title="sourceTitle || job.url">{{ sourceTitle || shortUrl }}</span>
           <span class="dl-item__host" :title="job.url">{{ job.url }}</span>
         </div>
       </div>
@@ -21,6 +21,9 @@
     </div>
 
     <div class="dl-item__meta">
+      <span v-if="workSummary" class="dl-item__meta-chip">
+        {{ workSummary }}
+      </span>
       <span v-if="job.total_bytes > 0" class="dl-item__meta-chip">
         {{ formatBytes(job.downloaded_bytes) }} / {{ formatBytes(job.total_bytes) }}
       </span>
@@ -79,6 +82,17 @@ const emit = defineEmits<{
 
 const shortUrl = computed(() => {
   try { return new URL(props.job.url).hostname + '…' } catch { return props.job.url }
+})
+const sourceTitle = computed(() => props.job.source_metadata?.title?.trim() || '')
+const workSummary = computed(() => {
+  const workTitle = props.job.source_metadata?.work_title?.trim()
+  if (!workTitle) {
+    return ''
+  }
+  const workIndex = props.job.source_metadata?.work_index ?? 0
+  return workIndex > 0
+    ? `${workTitle} #${String(workIndex).padStart(2, '0')}`
+    : workTitle
 })
 
 const isActive = computed(() => ['queued', 'downloading', 'processing'].includes(props.job.status))

@@ -29,6 +29,7 @@ export interface InboxUploadResult {
   source_path: string
   file_count: number
   total_bytes: number
+  default_tags?: string[]
 }
 
 export const libraryApi = {
@@ -42,10 +43,15 @@ export const libraryApi = {
       preview,
     }).then((r) => r.data),
 
-  uploadInbox: (files: InboxUploadFile[], batchName?: string) => {
+  uploadInbox: (files: InboxUploadFile[], batchName?: string, defaultTags?: string[]) => {
     const formData = new FormData()
     if (batchName?.trim()) {
       formData.append('batch_name', batchName.trim())
+    }
+    for (const tag of defaultTags ?? []) {
+      if (tag.trim()) {
+        formData.append('default_tags', tag.trim())
+      }
     }
 
     for (const entry of files) {

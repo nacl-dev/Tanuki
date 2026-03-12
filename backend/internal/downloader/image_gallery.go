@@ -297,13 +297,13 @@ func archiveEntryName(index int, rawURL string) (string, error) {
 func extractDoujinsTags(doc *xhtml.Node) []string {
 	description := extractMetaContent(doc, "name", "description")
 	if description == "" {
-		return nil
+		return []string{"site:doujins.com"}
 	}
 
 	lower := strings.ToLower(description)
 	idx := strings.Index(lower, "tags:")
 	if idx < 0 {
-		return nil
+		return []string{"site:doujins.com"}
 	}
 
 	raw := strings.TrimSpace(description[idx+len("tags:"):])
@@ -312,7 +312,8 @@ func extractDoujinsTags(doc *xhtml.Node) []string {
 	raw = strings.ReplaceAll(raw, " and ", ", ")
 
 	parts := strings.Split(raw, ",")
-	tags := make([]string, 0, len(parts))
+	tags := make([]string, 0, len(parts)+1)
+	tags = append(tags, "site:doujins.com")
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
 		tag := strings.TrimSpace(htmlstd.UnescapeString(part))
@@ -324,9 +325,9 @@ func extractDoujinsTags(doc *xhtml.Node) []string {
 			continue
 		}
 		seen[key] = struct{}{}
-		tags = append(tags, tag)
+		tags = append(tags, qualifyTags("genre", []string{tag})...)
 	}
-	return tags
+	return compactStrings(tags)
 }
 
 func extractMetaContent(node *xhtml.Node, attrName, attrValue string) string {

@@ -52,31 +52,37 @@
         class="detail-preview"
         :class="{ 'detail-preview--fullscreen': isImageFullscreen }"
       >
-        <VideoPlayer
-          v-if="media.type === 'video'"
-          :src="mediaAssetUrl(media.id, 'file')"
-          :poster="thumbnailAssetUrl"
-          :initial-time="media.read_progress || 0"
-          @timeupdate="onVideoTimeUpdate"
-          @ended="onVideoEnded"
-        />
-        <img
-          v-else-if="media.type === 'image' && !imgError"
-          :src="mediaAssetUrl(media.id, 'file')"
-          :alt="media.title"
-          class="media-image"
-          @error="onImgError"
-        />
-        <button
-          v-if="media.type === 'image' && !imgError"
-          type="button"
-          class="detail-preview__fullscreen-btn"
-          :aria-label="isImageFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
-          :title="isImageFullscreen ? 'Exit Fullscreen' : 'Fullscreen'"
-          @click="toggleImageFullscreen"
-        >
-          <AppIcon :name="isImageFullscreen ? 'collapse' : 'expand'" :size="16" />
-        </button>
+        <template v-if="media.type === 'video'">
+          <VideoPlayer
+            :src="mediaAssetUrl(media.id, 'file')"
+            :poster="thumbnailAssetUrl"
+            :initial-time="media.read_progress || 0"
+            @timeupdate="onVideoTimeUpdate"
+            @ended="onVideoEnded"
+          />
+        </template>
+        <template v-else-if="media.type === 'image'">
+          <img
+            v-if="!imgError"
+            :src="mediaAssetUrl(media.id, 'file')"
+            :alt="media.title"
+            class="media-image"
+            @error="onImgError"
+          />
+          <button
+            v-if="!imgError"
+            type="button"
+            class="detail-preview__fullscreen-btn"
+            :aria-label="isImageFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
+            :title="isImageFullscreen ? 'Exit Fullscreen' : 'Fullscreen'"
+            @click="toggleImageFullscreen"
+          >
+            <AppIcon :name="isImageFullscreen ? 'collapse' : 'expand'" :size="16" />
+          </button>
+          <div v-else class="detail-preview__fallback">
+            <AppIcon :name="typeIcon(media.type)" :size="34" />
+          </div>
+        </template>
         <!-- Archive preview + read button -->
         <div v-else-if="isArchive && pages" class="archive-preview">
           <img
@@ -86,7 +92,7 @@
             class="media-image archive-thumb"
             @error="onImgError"
           />
-          <div v-else class="media-placeholder">
+          <div v-else class="detail-preview__fallback">
             <AppIcon :name="typeIcon(media.type)" :size="34" />
           </div>
           <div class="archive-actions">
@@ -96,7 +102,7 @@
             </button>
           </div>
         </div>
-        <div v-else class="media-placeholder">
+        <div v-else class="detail-preview__fallback">
           <AppIcon :name="typeIcon(media.type)" :size="34" />
         </div>
       </div>
@@ -187,6 +193,13 @@
               <span class="meta-summary-value meta-summary-link">
                 <a v-if="media.source_url" :href="media.source_url" target="_blank" rel="noopener">Source</a>
                 <template v-else>—</template>
+              </span>
+            </div>
+            <div v-if="media.work_title || media.work_index > 0" class="meta-summary-row">
+              <span class="meta-summary-label">Work</span>
+              <span class="meta-summary-value">
+                {{ media.work_title || 'Untitled work' }}
+                <template v-if="media.work_index > 0"> · #{{ media.work_index }}</template>
               </span>
             </div>
             <div class="meta-summary-row meta-summary-row--stacked">
@@ -295,14 +308,21 @@
               <input v-model="editForm.source_url" class="edit-input" type="url" placeholder="https://…" />
             </label>
             <label class="edit-field">
-              <span>Tags</span>
-              <textarea
-                v-model="editForm.tags"
-                class="edit-input edit-textarea"
-                rows="3"
-                placeholder="comma, separated, tags"
-              />
+              <span>Work Title</span>
+              <input v-model="editForm.work_title" class="edit-input" type="text" placeholder="Series, chapter pack, release set…" />
             </label>
+            <label class="edit-field">
+              <span>Work Index</span>
+              <input v-model="editForm.work_index" class="edit-input" type="number" min="0" step="1" placeholder="1" />
+            </label>
+            <div class="edit-field">
+              <span>Tags</span>
+              <TagListEditor
+                v-model="editForm.tags"
+                :disabled="savingMetadata"
+                placeholder="artist:name or series:title"
+              />
+            </div>
             <div class="edit-field">
               <span>Collections</span>
               <div v-if="loadingCollections" class="meta-summary-empty">Loading collections…</div>
@@ -373,12 +393,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { mediaApi, mediaAssetUrl, mediaPageUrl, type Media, type PagesResponse } from '@/api/mediaApi'
 import { autotagApi, type AutoTagResult, type SuggestedTag } from '@/api/autotagApi'
 import { collectionApi, type Collection } from '@/api/collectionApi'
+import { tagExpression } from '@/utils/tags'
 import { dedupApi, type DuplicateItem } from '@/api/dedupApi'
 import { useMediaStore } from '@/stores/mediaStore'
 import { useNoticeStore } from '@/stores/noticeStore'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import ModalShell from '@/components/Layout/ModalShell.vue'
 import TagBadge from '@/components/Tags/TagBadge.vue'
+import TagListEditor from '@/components/Tags/TagListEditor.vue'
 import VideoPlayer from '@/components/Player/VideoPlayer.vue'
 import MangaReader from '@/components/Reader/MangaReader.vue'
 import AutoTagDialog from '@/components/AutoTag/AutoTagDialog.vue'
@@ -418,7 +440,9 @@ const editForm = ref({
   created_at: '',
   language: '',
   source_url: '',
-  tags: '',
+  work_title: '',
+  work_index: '',
+  tags: [] as string[],
 })
 let activeLoadToken = 0
 
@@ -599,7 +623,9 @@ async function saveMetadata() {
       created_at: editForm.value.created_at || undefined,
       language: editForm.value.language.trim() || undefined,
       source_url: editForm.value.source_url.trim() || undefined,
-      tag_names: editForm.value.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      work_title: editForm.value.work_title.trim(),
+      work_index: normalizeWorkIndex(editForm.value.work_index),
+      tag_names: editForm.value.tags,
     })
     media.value = res.data
     syncEditForm(res.data)
@@ -779,8 +805,18 @@ function syncEditForm(item: Media) {
     created_at: item.created_at ? item.created_at.slice(0, 10) : '',
     language: item.language ?? '',
     source_url: item.source_url ?? '',
-    tags: (item.tags ?? []).map((tag) => tag.name).join(', '),
+    work_title: item.work_title ?? '',
+    work_index: item.work_index > 0 ? String(item.work_index) : '',
+    tags: (item.tags ?? []).map((tag) => tagExpression(tag)),
   }
+}
+
+function normalizeWorkIndex(value: string) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0
+  }
+  return parsed
 }
 
 function resetDetailState() {
@@ -920,7 +956,12 @@ function isArchiveType(type: Media['type']) {
   display: block;
   object-fit: contain;
 }
-.media-placeholder { padding: 80px; text-align: center; color: var(--text-muted); font-size: 32px; }
+.detail-preview__fallback {
+  padding: 80px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 32px;
+}
 
 .archive-preview {
   position: relative;

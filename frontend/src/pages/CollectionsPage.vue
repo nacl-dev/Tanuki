@@ -28,7 +28,10 @@
                 <option value="doujinshi">Doujin</option>
               </select>
               <input v-model="draft.auto_title" class="input" type="text" placeholder="Title contains, e.g. Venus Blood" />
-              <input v-model="draft.auto_tag" class="input" type="text" placeholder="Tag, e.g. tentacles" />
+              <TagSuggestInput
+                v-model="draft.auto_tag"
+                placeholder="Tag or namespace, e.g. tentacles or artist:foo"
+              />
               <select v-model="draft.auto_favorite_mode" class="input">
                 <option value="">Any favorite state</option>
                 <option value="true">Favorites only</option>
@@ -124,7 +127,10 @@
                 <option value="doujinshi">Doujin</option>
               </select>
               <input v-model="editForm.auto_title" class="input" type="text" placeholder="Title contains, e.g. Venus Blood" />
-              <input v-model="editForm.auto_tag" class="input" type="text" placeholder="Tag, e.g. tentacles" />
+              <TagSuggestInput
+                v-model="editForm.auto_tag"
+                placeholder="Tag or namespace, e.g. tentacles or artist:foo"
+              />
               <select v-model="editForm.auto_favorite_mode" class="input">
                 <option value="">Any favorite state</option>
                 <option value="true">Favorites only</option>
@@ -155,6 +161,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import MediaGrid from '@/components/Gallery/MediaGrid.vue'
+import TagSuggestInput from '@/components/Tags/TagSuggestInput.vue'
 import { collectionApi, type Collection } from '@/api/collectionApi'
 import { mediaAssetUrl } from '@/api/mediaApi'
 import { useNoticeStore } from '@/stores/noticeStore'

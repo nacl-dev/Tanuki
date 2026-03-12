@@ -1,12 +1,12 @@
 package downloader
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/nacl-dev/tanuki/internal/importmeta"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/scanner"
 )
@@ -21,6 +21,7 @@ var organizedFolders = map[models.MediaType]string{
 
 func organizeDownloadedFiles(stagingDir, targetRoot string) ([]string, error) {
 	moved := make([]string, 0, 4)
+	files := make([]organizedMediaCandidate, 0, 8)
 
 	err := filepath.WalkDir(stagingDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -38,21 +39,46 @@ func organizeDownloadedFiles(stagingDir, targetRoot string) ([]string, error) {
 			return nil
 		}
 
-		targetDirName := classifyDownloadedTarget(stagingDir, path, d.Name(), mediaType)
-		targetDir := filepath.Join(targetRoot, targetDirName)
-		if err := os.MkdirAll(targetDir, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", targetDir, err)
-		}
-
-		targetPath := uniqueOrganizedPath(targetDir, d.Name())
-		if err := moveWithCompanions(path, targetPath); err != nil {
+		relPath, err := filepath.Rel(stagingDir, path)
+		if err != nil {
 			return err
 		}
-		moved = append(moved, targetPath)
+		files = append(files, organizedMediaCandidate{
+			SourcePath: path,
+			FileName:   d.Name(),
+			MediaType:  mediaType,
+			RelDir:     filepath.Dir(relPath),
+		})
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	groupedMetadata := inferGroupedImportMetadata(files)
+	for _, file := range files {
+		externalMetadata := readExternalImportMetadata(file.SourcePath)
+		targetDirName := classifyDownloadedTarget(stagingDir, file.SourcePath, file.FileName, file.MediaType)
+		targetDir := filepath.Join(targetRoot, targetDirName)
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			return nil, fmt.Errorf("mkdir %s: %w", targetDir, err)
+		}
+
+		targetPath := uniqueOrganizedPath(targetDir, file.FileName)
+		if err := moveWithCompanions(file.SourcePath, targetPath); err != nil {
+			return nil, err
+		}
+		if externalMetadata != nil {
+			if err := mergeImportMetadata(targetPath, *externalMetadata); err != nil {
+				return nil, fmt.Errorf("write external metadata for %s: %w", targetPath, err)
+			}
+		}
+		if metadata, ok := groupedMetadata[file.SourcePath]; ok {
+			if err := mergeImportMetadata(targetPath, metadata); err != nil {
+				return nil, fmt.Errorf("write metadata for %s: %w", targetPath, err)
+			}
+		}
+		moved = append(moved, targetPath)
 	}
 
 	return moved, nil
@@ -184,14 +210,17 @@ func sanitizeDownloadedFolder(name string) string {
 }
 
 func readImportMetadata(mediaPath string) *models.ImportMetadata {
-	body, err := os.ReadFile(mediaPath + ".tanuki.json")
+	metadata, err := importmeta.LoadMedia(mediaPath)
 	if err != nil {
 		return nil
 	}
+	return metadata
+}
 
-	var meta models.ImportMetadata
-	if err := json.Unmarshal(body, &meta); err != nil {
+func readExternalImportMetadata(mediaPath string) *models.ImportMetadata {
+	metadata, recognized, err := importmeta.LoadCompanion(mediaPath + ".json")
+	if err != nil || !recognized {
 		return nil
 	}
-	return &meta
+	return metadata
 }

@@ -169,6 +169,7 @@ type danbooruPost struct {
 	FileURL            string `json:"file_url"`
 	PreviewFileURL     string `json:"preview_file_url"`
 	FileExt            string `json:"file_ext"`
+	Site               string `json:"-"`
 	Rating             string `json:"rating"`
 	TagStringGeneral   string `json:"tag_string_general"`
 	TagStringArtist    string `json:"tag_string_artist"`
@@ -201,10 +202,11 @@ func (p *danbooruPost) DisplayTitle() string {
 func (p *danbooruPost) AllTags() []string {
 	tags := make([]string, 0, 32)
 	tags = append(tags, tagsFromString(p.TagStringGeneral)...)
-	tags = append(tags, tagsFromString(p.TagStringArtist)...)
-	tags = append(tags, tagsFromString(p.TagStringCharacter)...)
-	tags = append(tags, tagsFromString(p.TagStringCopyright)...)
-	tags = append(tags, tagsFromString(p.TagStringMeta)...)
+	tags = append(tags, qualifyTags("artist", tagsFromString(p.TagStringArtist))...)
+	tags = append(tags, qualifyTags("character", tagsFromString(p.TagStringCharacter))...)
+	tags = append(tags, qualifyTags("series", tagsFromString(p.TagStringCopyright))...)
+	tags = append(tags, qualifyTags("meta", tagsFromString(p.TagStringMeta))...)
+	tags = append(tags, qualifyTags("site", []string{p.Site})...)
 
 	switch strings.TrimSpace(strings.ToLower(p.Rating)) {
 	case "g":
@@ -247,6 +249,7 @@ func (e *DanbooruEngine) fetchPost(ctx context.Context, rawURL string) (*danboor
 	if err := json.NewDecoder(resp.Body).Decode(&post); err != nil {
 		return nil, fmt.Errorf("danbooru api decode: %w", err)
 	}
+	post.Site = "danbooru"
 	if post.ID == 0 {
 		post.ID = postID
 	}

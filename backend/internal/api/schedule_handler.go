@@ -39,11 +39,12 @@ func (h *ScheduleHandler) List(c *gin.Context) {
 // POST /api/schedules
 func (h *ScheduleHandler) Create(c *gin.Context) {
 	var body struct {
-		Name            string `json:"name"             binding:"required"`
-		URLPattern      string `json:"url_pattern"      binding:"required"`
-		SourceType      string `json:"source_type"      binding:"-"`
-		CronExpression  string `json:"cron_expression"  binding:"required"`
-		TargetDirectory string `json:"target_directory" binding:"-"`
+		Name            string   `json:"name"             binding:"required"`
+		URLPattern      string   `json:"url_pattern"      binding:"required"`
+		SourceType      string   `json:"source_type"      binding:"-"`
+		CronExpression  string   `json:"cron_expression"  binding:"required"`
+		TargetDirectory string   `json:"target_directory" binding:"-"`
+		DefaultTags     []string `json:"default_tags"     binding:"-"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
@@ -59,13 +60,18 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	_, defaultTagsRaw, err := prepareAutoTags(c.Request.Context(), h.db, body.DefaultTags)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "prepare default tags: "+err.Error())
+		return
+	}
 
 	id := uuid.NewString()
 	if _, err := h.db.Exec(`
 		INSERT INTO download_schedules
-			(id, user_id, name, url_pattern, source_type, cron_expression, enabled, target_directory, next_run)
-		VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)
-	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, cronExpression, targetDirectory, nextRun); err != nil {
+			(id, user_id, name, url_pattern, source_type, cron_expression, enabled, default_tags, target_directory, next_run)
+		VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9)
+	`, id, stringPtr(c.GetString("userID")), body.Name, body.URLPattern, body.SourceType, cronExpression, defaultTagsRaw, targetDirectory, nextRun); err != nil {
 		respondError(c, http.StatusInternalServerError, "create schedule: "+err.Error())
 		return
 	}
@@ -89,10 +95,11 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 	userID := c.GetString("userID")
 
 	var body struct {
-		Name            *string `json:"name"`
-		CronExpression  *string `json:"cron_expression"`
-		Enabled         *bool   `json:"enabled"`
-		TargetDirectory *string `json:"target_directory"`
+		Name            *string   `json:"name"`
+		CronExpression  *string   `json:"cron_expression"`
+		Enabled         *bool     `json:"enabled"`
+		TargetDirectory *string   `json:"target_directory"`
+		DefaultTags     *[]string `json:"default_tags"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		respondError(c, http.StatusBadRequest, err.Error())
@@ -139,6 +146,16 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 			nextRun = computedNextRun
 		}
 	}
+	updateDefaultTags := body.DefaultTags != nil
+	var defaultTagsRaw any
+	if updateDefaultTags {
+		_, payload, err := prepareAutoTags(c.Request.Context(), h.db, *body.DefaultTags)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "prepare default tags: "+err.Error())
+			return
+		}
+		defaultTagsRaw = payload
+	}
 
 	if _, err := h.db.Exec(`
 		UPDATE download_schedules SET
@@ -146,10 +163,11 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 			cron_expression = COALESCE($3, cron_expression),
 			enabled         = COALESCE($4, enabled),
 			target_directory = COALESCE($5, target_directory),
-			next_run        = $6,
+			default_tags    = CASE WHEN $6 THEN $7 ELSE default_tags END,
+			next_run        = $8,
 			updated_at      = NOW()
-		WHERE id = $1 AND (user_id = $7 OR user_id IS NULL)
-	`, id, body.Name, cronExpression, body.Enabled, targetDirectory, nextRun, userID); err != nil {
+		WHERE id = $1 AND (user_id = $9 OR user_id IS NULL)
+	`, id, body.Name, cronExpression, body.Enabled, targetDirectory, updateDefaultTags, defaultTagsRaw, nextRun, userID); err != nil {
 		respondError(c, http.StatusInternalServerError, "update schedule: "+err.Error())
 		return
 	}

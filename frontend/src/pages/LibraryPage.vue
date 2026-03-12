@@ -192,10 +192,64 @@
       </article>
     </section>
 
+    <section v-if="workGroups.length" class="library-workgroups">
+      <article
+        v-for="group in workGroups"
+        :key="group.key"
+        class="card shelf-card work-shelf"
+      >
+        <div class="shelf-card__head">
+          <div class="shelf-card__copy">
+            <span class="gallery-count">Work</span>
+            <h3>{{ group.title }}</h3>
+            <p class="work-shelf__copy">
+              {{ group.items.length }} item{{ group.items.length === 1 ? '' : 's' }}
+              <template v-if="group.items.some((item) => item.work_index > 0)"> · ordered</template>
+            </p>
+          </div>
+          <div class="shelf-card__overlay">
+            <span class="shelf-card__count">{{ group.items.length }}</span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm shelf-card__more"
+              @click="toggleWorkGroup(group.key)"
+            >
+              {{ isWorkGroupExpanded(group.key) ? 'Hide items' : 'Open work' }}
+            </button>
+          </div>
+        </div>
+
+        <MediaGrid
+          v-if="isWorkGroupExpanded(group.key)"
+          :items="group.items"
+          :loading="false"
+          :density="gridDensity"
+          :show-tags="false"
+          :compact-cards="true"
+        />
+
+        <div v-else class="work-shelf__peek">
+          <span
+            v-for="item in previewWorkItems(group.items)"
+            :key="item.id"
+            class="work-shelf__chip"
+          >
+            {{ workItemLabel(item) }}
+          </span>
+          <span
+            v-if="group.items.length > previewWorkItems(group.items).length"
+            class="work-shelf__chip work-shelf__chip--muted"
+          >
+            +{{ group.items.length - previewWorkItems(group.items).length }} more
+          </span>
+        </div>
+      </article>
+    </section>
+
     <section class="gallery-section">
       <div class="gallery-header">
         <div class="gallery-controls">
-          <span class="gallery-count">{{ store.total }} items</span>
+          <span class="gallery-count">{{ galleryCountLabel }}</span>
           <div class="density-toggle" role="group" aria-label="Grid density">
             <button
               type="button"
@@ -216,7 +270,16 @@
           </div>
         </div>
       </div>
-       <MediaGrid :items="store.items" :loading="store.loading" :density="gridDensity" :show-tags="false" />
+      <div v-if="workGroups.length && !ungroupedItems.length && !store.loading" class="gallery-grouped-empty">
+        All items on this page are grouped into works.
+      </div>
+      <MediaGrid
+        v-else
+        :items="galleryItems"
+        :loading="store.loading"
+        :density="gridDensity"
+        :show-tags="false"
+      />
 
       <div v-if="store.totalPages > 1" class="pagination">
         <button class="btn btn-ghost btn-sm" :disabled="store.currentPage <= 1" @click="store.prevPage()">← Previous</button>
@@ -258,6 +321,7 @@ const pinnedCollectionIds = ref<string[]>([])
 const collectionsExpanded = ref(false)
 const continueExpanded = ref(false)
 const recentExpanded = ref(false)
+const expandedWorkGroupKeys = ref<string[]>([])
 let taskFallbackTimer: number | null = null
 let taskStream: EventSource | null = null
 const maxExpandedShelfItems = 6
@@ -341,6 +405,53 @@ const hiddenCollectionsCount = computed(() => Math.max(orderedCollections.value.
 const shelfPreviewLimit = computed(() => 2)
 const expandedShelfCount = (items: Media[]) => Math.min(items.length, maxExpandedShelfItems)
 const moreShelfCount = (items: Media[]) => Math.max(expandedShelfCount(items) - Math.min(items.length, shelfPreviewLimit.value), 0)
+
+type WorkGroup = {
+  key: string
+  title: string
+  items: Media[]
+}
+
+const workGroups = computed<WorkGroup[]>(() => {
+  const grouped = new Map<string, WorkGroup>()
+  for (const item of store.items) {
+    const title = item.work_title?.trim()
+    if (!title) continue
+    const key = title.toLocaleLowerCase()
+    const existing = grouped.get(key)
+    if (existing) {
+      existing.items.push(item)
+      continue
+    }
+    grouped.set(key, {
+      key,
+      title,
+      items: [item],
+    })
+  }
+
+  return Array.from(grouped.values())
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort(compareWorkItems),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
+})
+
+const ungroupedItems = computed(() =>
+  store.items.filter((item) => !item.work_title?.trim()),
+)
+
+const galleryItems = computed(() => (workGroups.value.length ? ungroupedItems.value : store.items))
+const galleryCountLabel = computed(() => {
+  if (!workGroups.value.length) {
+    return `${store.total} items`
+  }
+  if (!ungroupedItems.value.length) {
+    return 'All items grouped into works'
+  }
+  return `${ungroupedItems.value.length} ungrouped items`
+})
 
 const quickShelves = computed(() => [
   {
@@ -560,6 +671,38 @@ function toggleShelf(key: string) {
   }
 }
 
+function toggleWorkGroup(key: string) {
+  if (expandedWorkGroupKeys.value.includes(key)) {
+    expandedWorkGroupKeys.value = expandedWorkGroupKeys.value.filter((item) => item !== key)
+    return
+  }
+  expandedWorkGroupKeys.value = [...expandedWorkGroupKeys.value, key]
+}
+
+function isWorkGroupExpanded(key: string) {
+  return expandedWorkGroupKeys.value.includes(key)
+}
+
+function previewWorkItems(items: Media[]) {
+  return items.slice(0, 3)
+}
+
+function workItemLabel(item: Media) {
+  if (item.work_index > 0) {
+    return `#${item.work_index} ${item.title}`
+  }
+  return item.title
+}
+
+function compareWorkItems(a: Media, b: Media) {
+  const aIndex = a.work_index > 0 ? a.work_index : Number.MAX_SAFE_INTEGER
+  const bIndex = b.work_index > 0 ? b.work_index : Number.MAX_SAFE_INTEGER
+  if (aIndex !== bIndex) {
+    return aIndex - bIndex
+  }
+  return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+}
+
 async function refreshLibrarySurfaces() {
   await Promise.all([
     store.fetchList(),
@@ -658,6 +801,11 @@ watch(
   },
   { immediate: true },
 )
+
+watch(workGroups, (groups) => {
+  const valid = new Set(groups.map((group) => group.key))
+  expandedWorkGroupKeys.value = expandedWorkGroupKeys.value.filter((key) => valid.has(key))
+})
 
 onMounted(() => {
   const savedDensity = window.localStorage.getItem('tanuki_grid_density')
@@ -914,6 +1062,12 @@ watch(
   gap: 14px;
 }
 
+.library-workgroups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .library-shelves {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -969,6 +1123,33 @@ watch(
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
+}
+
+.work-shelf__copy {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.work-shelf__peek {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.work-shelf__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.work-shelf__chip--muted {
+  color: var(--text-muted);
 }
 
 .shelf-card__more {
@@ -1161,6 +1342,15 @@ watch(
 }
 
 .gallery-count { font-size: 13px; color: var(--text-muted); }
+
+.gallery-grouped-empty {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  text-align: center;
+  background: var(--bg-surface);
+}
 
 .density-toggle {
   display: inline-flex;

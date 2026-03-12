@@ -36,6 +36,14 @@
         <input v-model="organizeAfterUpload" type="checkbox" />
         <span>Organize into the library automatically after upload</span>
       </label>
+
+      <div class="dropzone-tags">
+        <span class="dropzone-tags__label">Default tags</span>
+        <TagListEditor
+          v-model="defaultTags"
+          placeholder="artist:name"
+        />
+      </div>
     </div>
 
     <div v-if="lastUpload" class="upload-summary">
@@ -43,6 +51,10 @@
         <span class="upload-summary__chip">{{ lastUpload.file_count }} item{{ lastUpload.file_count === 1 ? '' : 's' }}</span>
         <span class="upload-summary__chip">{{ formatBytes(lastUpload.total_bytes) }}</span>
         <span class="upload-summary__chip">{{ lastUpload.source_path }}</span>
+      </div>
+
+      <div v-if="lastUpload.default_tags?.length" class="upload-summary__tags">
+        <span v-for="tag in lastUpload.default_tags" :key="tag" class="upload-summary__tag">{{ tag }}</span>
       </div>
 
       <p class="upload-summary__copy">
@@ -76,6 +88,7 @@ import { onMounted, ref } from 'vue'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import { libraryApi, type InboxUploadFile, type InboxUploadResult } from '@/api/libraryApi'
 import { useNoticeStore } from '@/stores/noticeStore'
+import TagListEditor from '@/components/Tags/TagListEditor.vue'
 
 interface FileWithRelativePath extends File {
   webkitRelativePath?: string
@@ -110,6 +123,7 @@ const { pushNotice } = useNoticeStore()
 const filesInput = ref<HTMLInputElement | null>(null)
 const folderInput = ref<HTMLInputElement | null>(null)
 const organizeAfterUpload = ref(true)
+const defaultTags = ref<string[]>([])
 const lastUpload = ref<InboxUploadResult | null>(null)
 const lastOrganizedSourcePath = ref('')
 const uploading = ref(false)
@@ -186,7 +200,7 @@ async function startUpload(files: InboxUploadFile[]) {
   lastOrganizedSourcePath.value = ''
 
   try {
-    const response = await libraryApi.uploadInbox(files)
+    const response = await libraryApi.uploadInbox(files, undefined, defaultTags.value)
     lastUpload.value = response.data
     pushNotice({
       type: 'success',
@@ -422,6 +436,17 @@ function formatBytes(value: number) {
   margin: 0;
 }
 
+.dropzone-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropzone-tags__label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .upload-summary {
   display: flex;
   flex-direction: column;
@@ -448,6 +473,24 @@ function formatBytes(value: number) {
   background: var(--bg-card);
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.upload-summary__tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upload-summary__tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .upload-summary__copy {

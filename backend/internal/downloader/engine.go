@@ -9,6 +9,8 @@ import (
 // SourceMetadata holds metadata fetched from a remote source before downloading.
 type SourceMetadata struct {
 	Title       string            `json:"title"`
+	WorkTitle   string            `json:"work_title,omitempty"`
+	WorkIndex   int               `json:"work_index,omitempty"`
 	Description string            `json:"description"`
 	Tags        []string          `json:"tags"`
 	TotalFiles  int               `json:"total_files"`

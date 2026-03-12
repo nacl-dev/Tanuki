@@ -31,6 +31,8 @@ type Media struct {
 	ID                string          `db:"id"                  json:"id"`
 	OwnerID           *string         `db:"owner_id"            json:"-"`
 	Title             string          `db:"title"               json:"title"`
+	WorkTitle         string          `db:"work_title"          json:"work_title"`
+	WorkIndex         int             `db:"work_index"          json:"work_index"`
 	Type              MediaType       `db:"type"                json:"type"`
 	FilePath          string          `db:"file_path"           json:"file_path"`
 	FileSize          int64           `db:"file_size"           json:"file_size"`

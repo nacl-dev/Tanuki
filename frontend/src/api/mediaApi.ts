@@ -12,6 +12,8 @@ export interface Media {
   view_count: number
   language: string
   source_url: string
+  work_title: string
+  work_index: number
   thumbnail_path: string
   read_progress: number
   read_total: number
@@ -34,6 +36,8 @@ export interface MediaUpdateBody {
   favorite?: boolean
   language?: string
   source_url?: string
+  work_title?: string
+  work_index?: number
   created_at?: string
   tag_names?: string[]
   read_progress?: number

@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
 	"github.com/nacl-dev/tanuki/internal/models"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 	"go.uber.org/zap"
 )
 
@@ -68,7 +69,7 @@ func (s *Service) AutoTag(ctx context.Context, item *models.Media) (*AutoTagResu
 		if err != nil {
 			s.log.Warn("autotag: saucenao search failed", zap.String("id", item.ID), zap.Error(err))
 		} else if result != nil {
-			tags := s.sauceNAOToTags(result)
+			tags := NormalizeSuggestedTags(s.sauceNAOToTags(result))
 			return &AutoTagResult{
 				Source:        "saucenao",
 				Similarity:    result.Similarity,
@@ -96,6 +97,7 @@ func (s *Service) AutoTag(ctx context.Context, item *models.Media) (*AutoTagResu
 }
 
 func (s *Service) ApplyTags(ctx context.Context, mediaID string, result *AutoTagResult, tags []SuggestedTag) error {
+	tags = NormalizeSuggestedTags(tags)
 	now := time.Now()
 
 	_, err := s.db.ExecContext(ctx, `
@@ -111,18 +113,23 @@ func (s *Service) ApplyTags(ctx context.Context, mediaID string, result *AutoTag
 		return fmt.Errorf("autotag: update media status: %w", err)
 	}
 
+	expressions := make([]string, 0, len(tags))
 	for _, t := range tags {
-		tagID, err := s.ensureTag(ctx, t.Name, t.Category)
-		if err != nil {
-			s.log.Warn("autotag: ensure tag", zap.String("name", t.Name), zap.Error(err))
-			continue
-		}
+		expressions = append(expressions, models.FormatTagExpression(t.Name, t.Category))
+	}
+
+	resolved, err := tagrules.NewService(s.db).ResolveOrCreate(ctx, expressions)
+	if err != nil {
+		return fmt.Errorf("autotag: resolve tags: %w", err)
+	}
+
+	for _, tag := range resolved {
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO media_tags (media_id, tag_id)
 			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
-		`, mediaID, tagID); err != nil {
-			s.log.Warn("autotag: insert media_tag", zap.String("tag", t.Name), zap.Error(err))
+		`, mediaID, tag.ID); err != nil {
+			s.log.Warn("autotag: insert media_tag", zap.String("tag", tag.Name), zap.Error(err))
 		}
 	}
 
@@ -163,36 +170,59 @@ func (s *Service) imagePathForMedia(item *models.Media) string {
 	return ""
 }
 
-func (s *Service) ensureTag(ctx context.Context, name string, category models.TagCategory) (string, error) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" {
-		return "", fmt.Errorf("empty tag name")
+// NormalizeSuggestedTags trims, deduplicates, and normalizes suggested tags so
+// manual namespace expressions and source-derived tags follow the same rules.
+func NormalizeSuggestedTags(tags []SuggestedTag) []SuggestedTag {
+	type normalizedTag struct {
+		tag   SuggestedTag
+		order int
 	}
 
-	var id string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM tags WHERE name = $1 AND category = $2`, name, string(category),
-	).Scan(&id)
-	if err == nil {
-		return id, nil
-	}
+	byName := make(map[string]normalizedTag, len(tags))
+	order := make([]string, 0, len(tags))
 
-	id = uuid.NewString()
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO tags (id, name, category, usage_count)
-		VALUES ($1, $2, $3, 0)
-		ON CONFLICT (name) DO UPDATE SET category = EXCLUDED.category
-		RETURNING id
-	`, id, name, string(category))
-	if err != nil {
-		err2 := s.db.QueryRowContext(ctx,
-			`SELECT id FROM tags WHERE name = $1`, name,
-		).Scan(&id)
-		if err2 != nil {
-			return "", fmt.Errorf("ensure tag %q: %w", name, err)
+	for idx, tag := range tags {
+		expression := models.FormatTagExpression(tag.Name, tag.Category)
+		parsed := models.ParseTag(expression)
+		if parsed.Name == "" {
+			continue
 		}
+
+		key := parsed.Name
+		next := SuggestedTag{
+			Name:       parsed.Name,
+			Category:   parsed.Category,
+			Confidence: tag.Confidence,
+		}
+
+		existing, ok := byName[key]
+		if !ok {
+			byName[key] = normalizedTag{tag: next, order: idx}
+			order = append(order, key)
+			continue
+		}
+
+		if models.ShouldPromoteTagCategory(existing.tag.Category, next.Category) {
+			existing.tag.Category = next.Category
+		}
+		if next.Confidence > existing.tag.Confidence {
+			existing.tag.Confidence = next.Confidence
+		}
+		if existing.tag.Name == "" {
+			existing.tag.Name = next.Name
+		}
+		byName[key] = existing
 	}
-	return id, nil
+
+	sort.SliceStable(order, func(i, j int) bool {
+		return byName[order[i]].order < byName[order[j]].order
+	})
+
+	normalized := make([]SuggestedTag, 0, len(order))
+	for _, key := range order {
+		normalized = append(normalized, byName[key].tag)
+	}
+	return normalized
 }
 
 func (s *Service) sauceNAOToTags(r *SauceNAOResult) []SuggestedTag {

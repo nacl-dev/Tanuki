@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,8 +14,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nacl-dev/tanuki/internal/database"
+	"github.com/nacl-dev/tanuki/internal/importmeta"
 	"github.com/nacl-dev/tanuki/internal/models"
 	"github.com/nacl-dev/tanuki/internal/remotehttp"
+	"github.com/nacl-dev/tanuki/internal/tagrules"
 	"github.com/nacl-dev/tanuki/internal/thumbnails"
 	"go.uber.org/zap"
 )
@@ -62,6 +63,8 @@ type scanStats struct {
 	Updated  int
 }
 
+const galleryImageThreshold = 20
+
 type upsertResult struct {
 	Hashed   bool
 	Inserted bool
@@ -93,6 +96,13 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 	seen := map[string]bool{}
 	stats := scanStats{}
+	type candidate struct {
+		path      string
+		mediaType models.MediaType
+	}
+	var candidates []candidate
+	imageCounts := map[string]int{}
+	dirHasNonImageMedia := map[string]bool{}
 
 	err := filepath.WalkDir(s.mediaPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -112,29 +122,70 @@ func (s *Scanner) Run(ctx context.Context) error {
 			return nil
 		}
 
-		seen[path] = true
-		stats.Seen++
-
-		result, err := s.upsert(ctx, path, mediaType)
-		if err != nil {
-			s.log.Error("scanner: upsert failed", zap.String("path", path), zap.Error(err))
+		candidates = append(candidates, candidate{path: path, mediaType: mediaType})
+		dir := filepath.Dir(path)
+		if mediaType == models.MediaTypeImage {
+			imageCounts[dir]++
 		} else {
-			if result.Hashed {
-				stats.Hashed++
-			} else {
-				stats.Reused++
-			}
-			if result.Inserted {
-				stats.Inserted++
-			} else {
-				stats.Updated++
-			}
+			dirHasNonImageMedia[dir] = true
 		}
 
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("walk: %w", err)
+	}
+
+	galleryDirs := map[string]bool{}
+	for dir, count := range imageCounts {
+		if count >= galleryImageThreshold && !dirHasNonImageMedia[dir] {
+			galleryDirs[dir] = true
+		}
+	}
+
+	for _, candidate := range candidates {
+		dir := filepath.Dir(candidate.path)
+		if candidate.mediaType == models.MediaTypeImage && galleryDirs[dir] {
+			continue
+		}
+
+		seen[candidate.path] = true
+		stats.Seen++
+		result, err := s.upsert(ctx, candidate.path, candidate.mediaType)
+		if err != nil {
+			s.log.Error("scanner: upsert failed", zap.String("path", candidate.path), zap.Error(err))
+			continue
+		}
+		if result.Hashed {
+			stats.Hashed++
+		} else {
+			stats.Reused++
+		}
+		if result.Inserted {
+			stats.Inserted++
+		} else {
+			stats.Updated++
+		}
+	}
+
+	for dir := range galleryDirs {
+		seen[dir] = true
+		stats.Seen++
+		result, err := s.upsertGallery(ctx, dir)
+		if err != nil {
+			s.log.Error("scanner: gallery upsert failed", zap.String("path", dir), zap.Error(err))
+			continue
+		}
+		if result.Hashed {
+			stats.Hashed++
+		} else {
+			stats.Reused++
+		}
+		if result.Inserted {
+			stats.Inserted++
+		} else {
+			stats.Updated++
+		}
 	}
 
 	if err := s.removeStale(ctx, seen); err != nil {
@@ -150,6 +201,171 @@ func (s *Scanner) Run(ctx context.Context) error {
 		zap.Duration("elapsed", time.Since(start)),
 	)
 	return nil
+}
+
+func (s *Scanner) upsertGallery(ctx context.Context, dir string) (upsertResult, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return upsertResult{}, fmt.Errorf("stat gallery %s: %w", dir, err)
+	}
+
+	scanMTime := s.scanMTime(dir, info.ModTime())
+	existing, err := s.lookupExisting(ctx, dir)
+	if err != nil {
+		return upsertResult{}, fmt.Errorf("lookup existing %s: %w", dir, err)
+	}
+
+	totalSize, checksum, err := galleryDigest(dir)
+	if err != nil {
+		return upsertResult{}, err
+	}
+
+	needsHash := existing == nil || existing.FileSize != totalSize || !sameScanTime(existing.ScanMTime, scanMTime)
+	if !needsHash {
+		checksum = existing.Checksum
+	}
+
+	defaultTitle := filepath.Base(dir)
+	return s.upsertItem(ctx, dir, totalSize, checksum, scanMTime, defaultTitle, models.MediaTypeDoujinshi, needsHash)
+}
+
+func galleryDigest(dir string) (int64, string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, "", fmt.Errorf("read gallery dir %s: %w", dir, err)
+	}
+
+	h := sha256.New()
+	var totalSize int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if _, ok := mediaExtensions[ext]; !ok || mediaExtensions[ext] != models.MediaTypeImage {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return 0, "", fmt.Errorf("stat gallery entry %s: %w", entry.Name(), err)
+		}
+		totalSize += info.Size()
+		_, _ = io.WriteString(h, entry.Name())
+		_, _ = io.WriteString(h, fmt.Sprintf(":%d:%d\n", info.Size(), normalizeScanTime(info.ModTime()).UnixNano()))
+	}
+
+	return totalSize, fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func (s *Scanner) upsertItem(
+	ctx context.Context,
+	path string,
+	fileSize int64,
+	checksum string,
+	scanMTime time.Time,
+	defaultTitle string,
+	mediaType models.MediaType,
+	needsHash bool,
+) (upsertResult, error) {
+	title := defaultTitle
+	workTitle := ""
+	workIndex := 0
+	importMeta, err := s.loadImportMetadata(path)
+	if err != nil {
+		s.log.Warn("scanner: load import metadata failed", zap.String("path", path), zap.Error(err))
+	}
+	if importMeta != nil && strings.TrimSpace(importMeta.Title) != "" {
+		title = strings.TrimSpace(importMeta.Title)
+	}
+	if importMeta != nil {
+		workTitle = strings.TrimSpace(importMeta.WorkTitle)
+		if importMeta.WorkIndex > 0 {
+			workIndex = importMeta.WorkIndex
+		}
+	}
+
+	sourceURL := ""
+	if importMeta != nil {
+		sourceURL = strings.TrimSpace(importMeta.SourceURL)
+	}
+
+	var mediaID string
+	var thumbnailPath string
+	var inserted bool
+	err = s.db.QueryRowxContext(ctx, `
+		INSERT INTO media (id, title, work_title, work_index, type, file_path, file_size, checksum, source_url, scan_mtime)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (file_path) DO UPDATE SET
+			type        = EXCLUDED.type,
+			file_size   = EXCLUDED.file_size,
+			checksum    = EXCLUDED.checksum,
+			scan_mtime  = EXCLUDED.scan_mtime,
+			title       = CASE
+				WHEN media.title = $11 OR media.title = '' THEN EXCLUDED.title
+				ELSE media.title
+			END,
+			work_title  = CASE
+				WHEN media.work_title = '' THEN EXCLUDED.work_title
+				ELSE media.work_title
+			END,
+			work_index  = CASE
+				WHEN media.work_index = 0 THEN EXCLUDED.work_index
+				ELSE media.work_index
+			END,
+			source_url  = CASE
+				WHEN media.source_url = '' THEN EXCLUDED.source_url
+				ELSE media.source_url
+			END,
+			phash = CASE
+				WHEN media.file_size IS DISTINCT FROM EXCLUDED.file_size
+				  OR media.scan_mtime IS DISTINCT FROM EXCLUDED.scan_mtime
+				  OR media.checksum IS DISTINCT FROM EXCLUDED.checksum
+				THEN NULL
+				ELSE media.phash
+			END,
+			phash_computed_at = CASE
+				WHEN media.file_size IS DISTINCT FROM EXCLUDED.file_size
+				  OR media.scan_mtime IS DISTINCT FROM EXCLUDED.scan_mtime
+				  OR media.checksum IS DISTINCT FROM EXCLUDED.checksum
+				THEN NULL
+				ELSE media.phash_computed_at
+			END,
+			deleted_at = NULL,
+			updated_at = NOW()
+		RETURNING id, thumbnail_path, (xmax = 0) AS inserted
+	`,
+		uuid.NewString(),
+		title,
+		workTitle,
+		workIndex,
+		string(mediaType),
+		path,
+		fileSize,
+		checksum,
+		sourceURL,
+		scanMTime,
+		defaultTitle,
+	).Scan(&mediaID, &thumbnailPath, &inserted)
+	if err != nil {
+		return upsertResult{}, err
+	}
+
+	if importMeta != nil {
+		if err := s.applyImportedTags(ctx, mediaID, importMeta.Tags); err != nil {
+			s.log.Warn("scanner: apply imported tags failed", zap.String("path", path), zap.Error(err))
+		}
+		if strings.TrimSpace(importMeta.PosterURL) != "" && strings.TrimSpace(thumbnailPath) == "" {
+			if err := s.downloadPosterThumbnail(ctx, mediaID, importMeta.PosterURL); err != nil {
+				s.log.Warn("scanner: import poster failed", zap.String("path", path), zap.Error(err))
+			}
+		}
+	}
+
+	if err := s.ensureThumbnail(ctx, mediaID, path, mediaType, thumbnailPath); err != nil {
+		s.log.Warn("scanner: ensure thumbnail failed", zap.String("path", path), zap.Error(err))
+	}
+
+	return upsertResult{Hashed: needsHash, Inserted: inserted}, nil
 }
 
 // upsert inserts a new Media record or updates the checksum/size if the file
@@ -180,90 +396,7 @@ func (s *Scanner) upsert(ctx context.Context, path string, mediaType models.Medi
 	}
 
 	defaultTitle := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	title := defaultTitle
-	importMeta, err := s.loadImportMetadata(path)
-	if err != nil {
-		s.log.Warn("scanner: load import metadata failed", zap.String("path", path), zap.Error(err))
-	}
-	if importMeta != nil && strings.TrimSpace(importMeta.Title) != "" {
-		title = strings.TrimSpace(importMeta.Title)
-	}
-
-	sourceURL := ""
-	if importMeta != nil {
-		sourceURL = strings.TrimSpace(importMeta.SourceURL)
-	}
-
-	var mediaID string
-	var thumbnailPath string
-	var inserted bool
-	err = s.db.QueryRowxContext(ctx, `
-		INSERT INTO media (id, title, type, file_path, file_size, checksum, source_url, scan_mtime)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (file_path) DO UPDATE SET
-			type       = EXCLUDED.type,
-			file_size  = EXCLUDED.file_size,
-			checksum   = EXCLUDED.checksum,
-			scan_mtime = EXCLUDED.scan_mtime,
-			title      = CASE
-				WHEN media.title = $9 OR media.title = '' THEN EXCLUDED.title
-				ELSE media.title
-			END,
-			source_url = CASE
-				WHEN media.source_url = '' THEN EXCLUDED.source_url
-				ELSE media.source_url
-			END,
-			phash = CASE
-				WHEN media.file_size IS DISTINCT FROM EXCLUDED.file_size
-				  OR media.scan_mtime IS DISTINCT FROM EXCLUDED.scan_mtime
-				  OR media.checksum IS DISTINCT FROM EXCLUDED.checksum
-				THEN NULL
-				ELSE media.phash
-			END,
-			phash_computed_at = CASE
-				WHEN media.file_size IS DISTINCT FROM EXCLUDED.file_size
-				  OR media.scan_mtime IS DISTINCT FROM EXCLUDED.scan_mtime
-				  OR media.checksum IS DISTINCT FROM EXCLUDED.checksum
-				THEN NULL
-				ELSE media.phash_computed_at
-			END,
-			deleted_at = NULL,
-			updated_at = NOW()
-		RETURNING id, thumbnail_path, (xmax = 0) AS inserted
-	`,
-		uuid.NewString(),
-		title,
-		string(mediaType),
-		path,
-		info.Size(),
-		checksum,
-		sourceURL,
-		scanMTime,
-		defaultTitle,
-	).Scan(&mediaID, &thumbnailPath, &inserted)
-	if err != nil {
-		return upsertResult{}, err
-	}
-
-	if importMeta != nil {
-		if err := s.applyImportedTags(ctx, mediaID, importMeta.Tags); err != nil {
-			s.log.Warn("scanner: apply imported tags failed", zap.String("path", path), zap.Error(err))
-		}
-		if strings.TrimSpace(importMeta.PosterURL) != "" && strings.TrimSpace(thumbnailPath) == "" {
-			if err := s.downloadPosterThumbnail(ctx, mediaID, importMeta.PosterURL); err != nil {
-				s.log.Warn("scanner: import poster failed", zap.String("path", path), zap.Error(err))
-			}
-		}
-	}
-
-	if err := s.ensureThumbnail(ctx, mediaID, path, mediaType, thumbnailPath); err != nil {
-		s.log.Warn("scanner: ensure thumbnail failed", zap.String("path", path), zap.Error(err))
-	}
-
-	return upsertResult{
-		Hashed:   needsHash,
-		Inserted: inserted,
-	}, nil
+	return s.upsertItem(ctx, path, info.Size(), checksum, scanMTime, defaultTitle, mediaType, needsHash)
 }
 
 // removeStale soft-deletes database records that no longer have a file on disk.
@@ -328,7 +461,7 @@ func (s *Scanner) lookupExisting(ctx context.Context, path string) (*existingMed
 
 func (s *Scanner) scanMTime(mediaPath string, fileTime time.Time) time.Time {
 	latest := normalizeScanTime(fileTime)
-	for _, candidate := range []string{mediaPath + ".tanuki.json", mediaPath + ".info.json"} {
+	for _, candidate := range importmeta.CandidatePaths(mediaPath) {
 		info, err := os.Stat(candidate)
 		if err != nil {
 			continue
@@ -353,96 +486,25 @@ func normalizeScanTime(value time.Time) time.Time {
 }
 
 func (s *Scanner) loadImportMetadata(mediaPath string) (*models.ImportMetadata, error) {
-	sidecarPath := mediaPath + ".tanuki.json"
-	body, err := os.ReadFile(sidecarPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
-		}
-	} else {
-		var metadata models.ImportMetadata
-		if err := json.Unmarshal(body, &metadata); err != nil {
-			return nil, err
-		}
-		return &metadata, nil
-	}
-
-	infoPath := mediaPath + ".info.json"
-	body, err = os.ReadFile(infoPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var payload struct {
-		Title       string   `json:"title"`
-		WebpageURL  string   `json:"webpage_url"`
-		OriginalURL string   `json:"original_url"`
-		Thumbnail   string   `json:"thumbnail"`
-		Tags        []string `json:"tags"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, err
-	}
-
-	sourceURL := strings.TrimSpace(payload.WebpageURL)
-	if sourceURL == "" {
-		sourceURL = strings.TrimSpace(payload.OriginalURL)
-	}
-
-	return &models.ImportMetadata{
-		Title:     strings.TrimSpace(payload.Title),
-		SourceURL: sourceURL,
-		PosterURL: strings.TrimSpace(payload.Thumbnail),
-		Tags:      payload.Tags,
-	}, nil
+	return importmeta.LoadMedia(mediaPath)
 }
 
 func (s *Scanner) applyImportedTags(ctx context.Context, mediaID string, tags []string) error {
-	for _, raw := range tags {
-		name := strings.ToLower(strings.TrimSpace(raw))
-		if name == "" {
-			continue
-		}
+	resolved, err := tagrules.NewService(s.db).ResolveOrCreate(ctx, tags)
+	if err != nil {
+		return err
+	}
 
-		tagID, err := ensureScannerTag(ctx, s.db, name)
-		if err != nil {
-			return err
-		}
+	for _, tag := range resolved {
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO media_tags (media_id, tag_id)
 			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
-		`, mediaID, tagID); err != nil {
+		`, mediaID, tag.ID); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func ensureScannerTag(ctx context.Context, db *database.DB, name string) (string, error) {
-	var existing struct {
-		ID string `db:"id"`
-	}
-	if err := db.GetContext(ctx, &existing, `SELECT id FROM tags WHERE name = $1`, name); err == nil {
-		return existing.ID, nil
-	}
-
-	id := uuid.NewString()
-	if _, err := db.ExecContext(ctx, `
-		INSERT INTO tags (id, name, category, usage_count)
-		VALUES ($1, $2, $3, 0)
-		ON CONFLICT (name) DO NOTHING
-	`, id, name, models.TagCategoryGeneral); err != nil {
-		return "", err
-	}
-
-	if err := db.GetContext(ctx, &existing, `SELECT id FROM tags WHERE name = $1`, name); err != nil {
-		return "", err
-	}
-	return existing.ID, nil
 }
 
 func (s *Scanner) downloadPosterThumbnail(ctx context.Context, mediaID, posterURL string) error {

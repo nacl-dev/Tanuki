@@ -2,18 +2,15 @@
   <article :class="['media-card', { 'media-card--compact': compact }]" @mouseenter="onHoverStart" @mouseleave="onHoverEnd">
     <RouterLink :to="`/media/${media.id}`" class="media-card__link">
       <div class="media-card__thumb" :class="{ 'media-card__thumb--hover': showHoverPreview }">
-        <div v-if="showHoverPreview" class="media-card__preview-overlay">
-          <span class="media-card__preview-badge">Quick Preview</span>
-        </div>
         <img
-          v-if="!thumbError"
+          v-if="showThumbnail"
           :src="thumbnailUrl"
           :alt="media.title"
           loading="lazy"
           class="media-card__image"
           @error="onThumbError"
         />
-        <div v-if="thumbError" class="media-card__placeholder">
+        <div v-else-if="showPlaceholder" class="media-card__placeholder">
           <AppIcon :name="typeIcon" :size="30" />
         </div>
 
@@ -44,6 +41,17 @@
     </RouterLink>
 
     <button
+      v-if="canQuickPreview"
+      type="button"
+      :class="['media-card__preview-trigger', { 'media-card__preview-trigger--active': showHoverPreview }]"
+      :aria-label="`Quick preview ${media.title}`"
+      @click.stop="openPreview"
+    >
+      <AppIcon name="play" :size="14" />
+      <span class="media-card__preview-label">Preview</span>
+    </button>
+
+    <button
       type="button"
       class="media-card__fav"
       :class="{ 'media-card__fav--active': media.favorite }"
@@ -54,15 +62,25 @@
       <AppIcon name="heart" :size="15" :filled="media.favorite" />
       <span class="media-card__fav-label">{{ media.favorite ? 'Saved' : 'Save' }}</span>
     </button>
+
+    <VideoQuickPreview
+      v-if="previewOpen"
+      :media="media"
+      :poster="posterUrl"
+      @close="closePreview"
+      @open-details="openDetails"
+    />
   </article>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import AppIcon from '@/components/Layout/AppIcon.vue'
 import { mediaAssetUrl, type Media } from '@/api/mediaApi'
 import TagBadge from '@/components/Tags/TagBadge.vue'
 import { useMediaStore } from '@/stores/mediaStore'
+import VideoQuickPreview from '@/components/Gallery/VideoQuickPreview.vue'
 
 const props = withDefaults(defineProps<{
   media: Media
@@ -73,24 +91,46 @@ const props = withDefaults(defineProps<{
   compact: false,
 })
 const store = useMediaStore()
+const router = useRouter()
 const thumbError = ref(false)
 const hovering = ref(false)
+const previewOpen = ref(false)
 
-const showHoverPreview = computed(() => props.media.type === 'video' && hovering.value && !thumbError.value)
-const thumbnailUrl = computed(() => mediaAssetUrl(props.media.id, 'thumbnail', props.media.updated_at))
+const canQuickPreview = computed(() => props.media.type === 'video')
+const showHoverPreview = computed(() => canQuickPreview.value && hovering.value)
+const thumbnailUrl = computed(() => {
+  if (!props.media.thumbnail_path) return ''
+  return mediaAssetUrl(props.media.id, 'thumbnail', props.media.updated_at)
+})
+const posterUrl = computed(() => (thumbError.value ? undefined : thumbnailUrl.value))
+const showThumbnail = computed(() => Boolean(thumbnailUrl.value) && !thumbError.value)
+const showPlaceholder = computed(() => props.media.type !== 'video' && !showThumbnail.value)
 
 function onThumbError() {
   thumbError.value = true
 }
 
 function onHoverStart() {
-  if (props.media.type !== 'video') return
+  if (!canQuickPreview.value) return
   hovering.value = true
 }
 
 function onHoverEnd() {
-  if (props.media.type !== 'video') return
+  if (!canQuickPreview.value) return
   hovering.value = false
+}
+
+function openPreview() {
+  previewOpen.value = true
+}
+
+function closePreview() {
+  previewOpen.value = false
+}
+
+function openDetails() {
+  closePreview()
+  void router.push({ name: 'media-detail', params: { id: props.media.id } })
 }
 
 const typeIcon = computed(() => (props.media.type === 'video' ? 'video' : props.media.type === 'image' ? 'image' : 'book'))
@@ -139,27 +179,41 @@ const typeIcon = computed(() => (props.media.type === 'video' ? 'video' : props.
   transition: transform 0.22s ease, filter 0.22s ease;
 }
 
-.media-card__preview-overlay {
+.media-card__preview-trigger {
   position: absolute;
-  inset: auto 0 0 0;
-  z-index: 2;
-  display: flex;
-  justify-content: flex-start;
-  padding: 10px;
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.58));
-}
-
-.media-card__preview-badge {
+  top: 6px;
+  left: 6px;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
   border-radius: 999px;
   background: rgba(16, 24, 39, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #f8fafc;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.media-card__preview-trigger:hover,
+.media-card__preview-trigger--active {
+  background: rgba(16, 24, 39, 0.88);
+  border-color: rgba(245, 158, 11, 0.32);
+  transform: translateY(-1px);
+}
+
+.media-card__preview-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.media-card__preview-label {
+  line-height: 1;
 }
 
 .media-card__placeholder {
@@ -295,6 +349,17 @@ const typeIcon = computed(() => (props.media.type === 'video' ? 'video' : props.
 
   .media-card__title {
     font-size: 12px;
+  }
+
+  .media-card__preview-label,
+  .media-card__fav-label {
+    display: none;
+  }
+
+  .media-card__preview-trigger,
+  .media-card__fav {
+    min-width: 30px;
+    padding: 0 8px;
   }
 }
 </style>

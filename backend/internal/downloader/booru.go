@@ -157,6 +157,7 @@ type booruPost struct {
 	ID         string
 	FileURL    string
 	PreviewURL string
+	Site       string
 	Rating     string
 	General    []string
 	Artists    []string
@@ -183,10 +184,11 @@ func (p *booruPost) Title() string {
 func (p *booruPost) AllTags() []string {
 	tags := make([]string, 0, len(p.General)+len(p.Artists)+len(p.Characters)+len(p.Copyrights)+len(p.Meta)+1)
 	tags = append(tags, p.General...)
-	tags = append(tags, p.Artists...)
-	tags = append(tags, p.Characters...)
-	tags = append(tags, p.Copyrights...)
-	tags = append(tags, p.Meta...)
+	tags = append(tags, qualifyTags("artist", p.Artists)...)
+	tags = append(tags, qualifyTags("character", p.Characters)...)
+	tags = append(tags, qualifyTags("series", p.Copyrights)...)
+	tags = append(tags, qualifyTags("meta", p.Meta)...)
+	tags = append(tags, qualifyTags("site", []string{p.Site})...)
 
 	switch strings.TrimSpace(strings.ToLower(p.Rating)) {
 	case "g", "safe":
@@ -262,6 +264,7 @@ func (e *BooruEngine) fetchSafebooruPost(ctx context.Context, u *urlpkg.URL) (*b
 		ID:         item.ID,
 		FileURL:    strings.TrimSpace(item.FileURL),
 		PreviewURL: strings.TrimSpace(item.PreviewURL),
+		Site:       "safebooru",
 		Rating:     strings.TrimSpace(item.Rating),
 		General:    parseBooruTagString(item.Tags),
 	}, nil
@@ -302,6 +305,7 @@ func (e *BooruEngine) fetchGelbooruPost(ctx context.Context, rawURL string) (*bo
 		extractMetaContent(doc, "property", "og:image"),
 		extractMetaContent(doc, "name", "twitter:image"),
 	)
+	post.Site = "gelbooru"
 	post.Rating = extractGelbooruRating(doc)
 	post.Artists = extractGelbooruTags(doc, "tag-type-artist")
 	post.Characters = extractGelbooruTags(doc, "tag-type-character")
