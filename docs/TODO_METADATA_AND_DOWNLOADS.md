@@ -78,10 +78,19 @@
 - [x] Verify the first compatibility pass with Go tests for metadata fetch and archive download against local fixture modules
 - [x] Run an audit snapshot against the mirrored corpus
   Current snapshot: 315 local Lua modules, 3 native-engine matches, 3 gallery-dl-first matches, 309 modules still in manual-review because they need broader host-surface coverage or better static classification
-- [ ] Add high-impact collection mutators next: `chapters.Reverse`, `chapters.Sort`, `pages.Reverse`, `pages.Sort`, plus `pages.Referer` / `pages.Headers`
-- [ ] Add a first JSON runtime surface next after that: `Json.New`, `json.SelectValue(s)`, `json.SelectToken(s)`, and `json.SelectNodes`
-- [ ] Expand chapter-oriented helpers further so `chapters.AddRange(dom/page.SelectElements(...))` works for more real-world modules
+- [x] Add first-pass high-impact collection mutators: `chapters.Reverse`, `chapters.Sort`, `pages.Reverse`, `pages.Sort`, plus placeholder `pages.Referer` / `pages.Headers`
+- [x] Add a first JSON runtime surface: `Json.New`, `json.SelectValue(s)`, `json.SelectNode(s)`, and a minimal `JavaScript.New().Execute("name = <json>")` bridge for JSON-backed page data
+- [x] Add a first chapter-series download path so manga root URLs can emit one archive per chapter instead of failing outright on `GetChapters()`
+- [x] Add `Dom.New(...)` plus DOM aliases like `SelectNode(s)` and attribute reads such as `SelectValue("@href")`
+- [ ] Expand chapter-oriented helpers further so `chapters.AddRange(dom/page.SelectElements(...))` and related chapter-list modules work for more real-world sites
 - [ ] Add the smallest useful non-login HTTP form/post helpers after that: `http.Post`, `http.PostResponse`, `http.GetResponse`, response cookies/body, and real `global.SetCookies`
-- [ ] Add `Dom.New` and small DOM helpers like `dom.Title` / `dom.SelectNodes` once the collection+JSON+HTTP layers are in place
+- [ ] Add the remaining small DOM helpers like `dom.Title` once the collection+JSON+HTTP layers are in place
 - [ ] Revisit a minimal `JavaScript` host surface only for concrete high-value hentai sites after the non-JS module set is exhausted
 - [ ] Keep encrypted or login-heavy modules out of the executable runtime until the host API surface is mapped more safely
+
+## Live Validation 2026-03-12
+- [x] End-to-end validated the HDoujin compatibility path against 5 real hosts: manhwa18.net, hentai18.net, rokuhentai.com, boards.4chan.org, and asmhentai.com
+- [x] Closed the first useful non-login HTTP helper batch for live modules: http.Get, http.Post, http.GetResponse, http.PostResponse, response cookies and body, and global.SetCookies
+- [x] Closed the next small DOM helper batch for live modules: dom.Title, Dom.New, and dom.New compatibility on DOM instances
+- [x] Confirmed chapter-list helpers now work on real sites that depend on chapters.AddRange and chapters.Reverse
+- [ ] Follow up on two live-run findings: collection-backed tag lists must ignore helper methods when converting tags, and large story hosts should be sanity-checked with smaller fixtures during future validation

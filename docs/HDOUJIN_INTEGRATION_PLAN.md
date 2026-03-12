@@ -57,7 +57,12 @@ The downloader now includes a first HDoujin Lua compatibility engine and wires i
 - matches URLs by declared module domains
 - supports a simple HTML/XPath runtime for `GetInfo()`, `GetPages()`, and `BeforeDownloadPage()`
 - supports both `dom.Select*` and `page.Select*`
+- supports `Dom.New(...)` for HTML-fragment-backed readers
+- supports a first JSON runtime via `Json.New`, `json.SelectValue(s)`, and `json.SelectNode(s)`
+- supports a minimal `JavaScript.New().Execute("name = <json>")` bridge for sites that expose JSON payloads in the page HTML
 - supports collection helpers such as `Count()`, `First()`, `Last()`, and simple iteration over `SelectElements(...)`
+- supports `pages/chapters Reverse()` and `Sort()`
+- supports a first chapter-series path that downloads one archive per chapter when the root URL only exposes `GetChapters()`
 - downloads simple gallery-style page sets into `.cbz`
 
 Current deliberate limits:
@@ -87,10 +92,10 @@ Scan results against the 315 mirrored modules show these next priorities:
 
 That means the next useful runtime batch is not "random more helpers", but:
 
-1. collection mutators
-2. JSON runtime
-3. HTTP response/cookie surface
-4. `Dom.New`
+1. HTTP response/cookie surface
+2. richer chapter-list helpers such as broader `chapters.AddRange(...)` patterns
+3. remaining DOM helpers like `dom.Title`
+4. broader JavaScript runtime only where it unlocks concrete high-value sites
 
 ## Suggested Triage Rules
 

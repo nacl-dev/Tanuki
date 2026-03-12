@@ -59,10 +59,13 @@ type hdoujinRuntime struct {
 	client      *http.Client
 	log         *zap.Logger
 	currentURL  string
+	currentBody string
 	currentDoc  *html.Node
 	info        map[string]lua.LValue
 	pages       []string
 	chapters    []hdoujinChapter
+	pagesTbl    *lua.LTable
+	chaptersTbl *lua.LTable
 	matchedHost string
 }
 
@@ -126,6 +129,9 @@ func (e *HDoujinLuaEngine) FetchMetadata(rawURL string) (*SourceMetadata, error)
 		return nil, newUnsupportedURLError("hdoujin", "module GetPages failed: "+err.Error())
 	}
 	if len(rt.pages) == 0 {
+		if err := rt.loadURL(context.Background(), rawURL, nil); err != nil {
+			return nil, err
+		}
 		if err := rt.callIfPresent("GetChapters"); err != nil {
 			return nil, newUnsupportedURLError("hdoujin", "module GetChapters failed: "+err.Error())
 		}
@@ -165,7 +171,15 @@ func (e *HDoujinLuaEngine) Download(ctx context.Context, job *models.DownloadJob
 		return newUnsupportedURLError("hdoujin", "module GetPages failed: "+err.Error())
 	}
 	if len(rt.pages) == 0 && rt.module.HasGetChapters {
-		return newUnsupportedURLError("hdoujin", "chapter-based HDoujin modules are not supported yet")
+		if err := rt.loadURL(ctx, job.URL, nil); err != nil {
+			return err
+		}
+		if err := rt.callIfPresent("GetChapters"); err != nil {
+			return newUnsupportedURLError("hdoujin", "module GetChapters failed: "+err.Error())
+		}
+		if len(rt.chapters) > 0 {
+			return e.downloadChapterSeries(ctx, job, rt, module)
+		}
 	}
 	if len(rt.pages) == 0 {
 		return newUnsupportedURLError("hdoujin", "module did not yield downloadable pages")
@@ -467,6 +481,7 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 	L.SetField(moduleTbl, "Adult", lua.LBool(rt.module.Adult))
 	L.SetField(moduleTbl, "Strict", lua.LBool(rt.module.Strict))
 	L.SetField(moduleTbl, "Domain", lua.LString(rt.matchedHost))
+	L.SetField(moduleTbl, "Settings", rt.newModuleSettingsTable())
 
 	domains := append([]string(nil), rt.module.Domains...)
 	domainsTbl := L.NewTable()
@@ -504,38 +519,76 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 	pagesTbl := L.NewTable()
 	L.SetField(pagesTbl, "Add", L.NewFunction(func(L *lua.LState) int {
 		rt.pages = append(rt.pages, rt.collectPageValues(luaValueArgMaybeSelf(L, pagesTbl, 1))...)
+		rt.syncPagesTable()
 		return 0
 	}))
 	L.SetField(pagesTbl, "AddRange", L.NewFunction(func(L *lua.LState) int {
 		rt.pages = append(rt.pages, rt.collectPageValues(luaValueArgMaybeSelf(L, pagesTbl, 1))...)
+		rt.syncPagesTable()
 		return 0
 	}))
 	L.SetField(pagesTbl, "Count", L.NewFunction(func(L *lua.LState) int {
 		L.Push(lua.LNumber(len(rt.pages)))
 		return 1
 	}))
+	L.SetField(pagesTbl, "Reverse", L.NewFunction(func(L *lua.LState) int {
+		reverseStrings(rt.pages)
+		rt.syncPagesTable()
+		return 0
+	}))
+	L.SetField(pagesTbl, "Sort", L.NewFunction(func(L *lua.LState) int {
+		sortStringsNaturally(rt.pages)
+		rt.syncPagesTable()
+		return 0
+	}))
+	L.SetField(pagesTbl, "Headers", L.NewTable())
+	L.SetField(pagesTbl, "Referer", lua.LString(""))
+	rt.pagesTbl = pagesTbl
+	rt.syncPagesTable()
 	L.SetGlobal("pages", pagesTbl)
 
 	chaptersTbl := L.NewTable()
 	L.SetField(chaptersTbl, "Add", L.NewFunction(func(L *lua.LState) int {
 		if chapter, ok := rt.chapterFromArgs(L, chaptersTbl); ok {
 			rt.chapters = append(rt.chapters, chapter)
+			rt.syncChaptersTable()
 		}
 		return 0
 	}))
 	L.SetField(chaptersTbl, "AddRange", L.NewFunction(func(L *lua.LState) int {
 		rt.chapters = append(rt.chapters, rt.collectChapterValues(luaCollectionValues(luaValueArgMaybeSelf(L, chaptersTbl, 1))...)...)
+		rt.syncChaptersTable()
 		return 0
 	}))
 	L.SetField(chaptersTbl, "Count", L.NewFunction(func(L *lua.LState) int {
 		L.Push(lua.LNumber(len(rt.chapters)))
 		return 1
 	}))
+	L.SetField(chaptersTbl, "Reverse", L.NewFunction(func(L *lua.LState) int {
+		reverseChapters(rt.chapters)
+		rt.syncChaptersTable()
+		return 0
+	}))
+	L.SetField(chaptersTbl, "Sort", L.NewFunction(func(L *lua.LState) int {
+		sortChaptersNaturally(rt.chapters)
+		rt.syncChaptersTable()
+		return 0
+	}))
+	rt.chaptersTbl = chaptersTbl
+	rt.syncChaptersTable()
 	L.SetGlobal("chapters", chaptersTbl)
 
 	pageTbl := rt.newDOMValue(nil)
 	L.SetField(pageTbl, "Url", lua.LString(""))
 	L.SetGlobal("page", pageTbl)
+	L.SetGlobal("Dom", rt.newDOMFactory())
+	L.SetGlobal("Json", rt.newJSONFactory())
+	L.SetGlobal("JavaScript", rt.newJavaScriptFactory())
+	L.SetGlobal("ChapterInfo", rt.newChapterInfoFactory())
+	L.SetGlobal("PageInfo", rt.newPageInfoFactory())
+	L.SetGlobal("ChapterList", rt.newListFactory())
+	L.SetGlobal("PageList", rt.newListFactory())
+	L.SetGlobal("Dict", rt.newDictFactory())
 
 	globalTbl := L.NewTable()
 	L.SetField(globalTbl, "SetCookie", L.NewFunction(func(L *lua.LState) int {
@@ -549,32 +602,28 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 		rt.client.Jar.SetCookies(u, []*http.Cookie{{Name: name, Value: value, Domain: domain, Path: "/"}})
 		return 0
 	}))
-	L.SetField(globalTbl, "SetCookies", L.NewFunction(func(L *lua.LState) int { return 0 }))
+	L.SetField(globalTbl, "SetCookies", L.NewFunction(func(L *lua.LState) int {
+		rt.setCookies(luaValueArgMaybeSelf(L, globalTbl, 1))
+		return 0
+	}))
 	L.SetGlobal("global", globalTbl)
 
 	headersTbl := L.NewTable()
 	postDataTbl := L.NewTable()
-	L.SetField(postDataTbl, "Add", L.NewFunction(func(L *lua.LState) int { return 0 }))
-	httpTbl := L.NewTable()
-	L.SetField(httpTbl, "Headers", headersTbl)
-	L.SetField(httpTbl, "Cookies", L.NewTable())
-	L.SetField(httpTbl, "PostData", postDataTbl)
-	L.SetField(httpTbl, "Get", L.NewFunction(func(L *lua.LState) int {
-		if err := rt.loadURL(context.Background(), luaStringArgMaybeSelf(L, httpTbl, 1), headersTbl); err != nil {
-			L.RaiseError("%s", err.Error())
-			return 0
+	L.SetField(postDataTbl, "Add", L.NewFunction(func(L *lua.LState) int {
+		key := strings.TrimSpace(luaStringArgMaybeSelf(L, postDataTbl, 1))
+		value := luaValueArgMaybeSelf(L, postDataTbl, 2)
+		if key != "" {
+			postDataTbl.RawSetString(key, lua.LString(strings.TrimSpace(value.String())))
 		}
-		L.Push(lua.LString(rt.currentURL))
-		return 1
-	}))
-	L.SetField(httpTbl, "PostResponse", L.NewFunction(func(L *lua.LState) int {
-		L.RaiseError("http.PostResponse is not supported in the first HDoujin compatibility pass")
 		return 0
 	}))
-	L.SetGlobal("http", httpTbl)
+	L.SetGlobal("http", rt.newHTTPTable(headersTbl, postDataTbl))
 
 	L.SetGlobal("url", lua.LString(rt.currentURL))
 	L.SetGlobal("dom", rt.newDOMValue(nil))
+	L.SetGlobal("doc", lua.LString(rt.currentBody))
+	L.SetGlobal("API_VERSION", lua.LNumber(20260312))
 	L.SetGlobal("isempty", L.NewFunction(func(L *lua.LState) int {
 		value := L.CheckAny(1)
 		empty := false
@@ -610,6 +659,32 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 			return 1
 		}
 		L.Push(lua.LString(sourceBaseURL(u.String())))
+		return 1
+	}))
+	L.SetGlobal("GetRooted", L.NewFunction(func(L *lua.LState) int {
+		value := luaCollectionValues(L.CheckAny(1))
+		root := L.CheckString(2)
+		if len(value) == 0 {
+			L.Push(lua.LString(""))
+			return 1
+		}
+		L.Push(lua.LString(resolveHDoujinURL(root, strings.TrimSpace(value[0].String()))))
+		return 1
+	}))
+	L.SetGlobal("toboolean", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(luaValueAsBool(L.CheckAny(1))))
+		return 1
+	}))
+	L.SetGlobal("RegexReplace", L.NewFunction(func(L *lua.LState) int {
+		value := L.CheckString(1)
+		pattern := L.CheckString(2)
+		replacement := L.CheckString(3)
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			L.Push(lua.LString(value))
+			return 1
+		}
+		L.Push(lua.LString(re.ReplaceAllString(value, replacement)))
 		return 1
 	}))
 	L.SetGlobal("DoEncryptedString", L.NewFunction(func(L *lua.LState) int {
@@ -680,6 +755,59 @@ func (rt *hdoujinRuntime) extendStringLibrary() {
 		L.Push(lua.LString(match[group]))
 		return 1
 	}))
+	rt.L.SetField(stringTbl, "beforelast", rt.L.NewFunction(func(L *lua.LState) int {
+		value := L.CheckString(1)
+		sep := L.CheckString(2)
+		if idx := strings.LastIndex(value, sep); idx >= 0 {
+			L.Push(lua.LString(value[:idx]))
+		} else {
+			L.Push(lua.LString(value))
+		}
+		return 1
+	}))
+	rt.L.SetField(stringTbl, "between", rt.L.NewFunction(func(L *lua.LState) int {
+		value := L.CheckString(1)
+		left := L.CheckString(2)
+		right := L.CheckString(3)
+		start := strings.Index(value, left)
+		if start < 0 {
+			L.Push(lua.LString(""))
+			return 1
+		}
+		start += len(left)
+		end := strings.Index(value[start:], right)
+		if end < 0 {
+			L.Push(lua.LString(""))
+			return 1
+		}
+		L.Push(lua.LString(value[start : start+end]))
+		return 1
+	}))
+	rt.L.SetField(stringTbl, "replace", rt.L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LString(strings.ReplaceAll(L.CheckString(1), L.CheckString(2), L.CheckString(3))))
+		return 1
+	}))
+	rt.L.SetField(stringTbl, "regexmany", rt.L.NewFunction(func(L *lua.LState) int {
+		value := L.CheckString(1)
+		pattern := L.CheckString(2)
+		group := L.OptInt(3, 0)
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			L.Push(rt.newCollection(nil))
+			return 1
+		}
+		matches := re.FindAllStringSubmatch(value, -1)
+		out := make([]lua.LValue, 0, len(matches))
+		for _, match := range matches {
+			idx := group
+			if idx < 0 || idx >= len(match) {
+				idx = 0
+			}
+			out = append(out, lua.LString(match[idx]))
+		}
+		L.Push(rt.newCollection(out))
+		return 1
+	}))
 }
 
 func (rt *hdoujinRuntime) newDOMValue(node *html.Node) lua.LValue {
@@ -726,6 +854,19 @@ func (rt *hdoujinRuntime) newDOMValue(node *html.Node) lua.LValue {
 		L.Push(rt.newCollection(out))
 		return 1
 	}))
+	rt.L.SetField(tbl, "SelectNode", rt.L.GetField(tbl, "SelectElement"))
+	rt.L.SetField(tbl, "SelectNodes", rt.L.GetField(tbl, "SelectElements"))
+	rt.L.SetField(tbl, "New", rt.L.NewFunction(func(L *lua.LState) int {
+		fragment := strings.TrimSpace(luaStringArgMaybeSelf(L, tbl, 1))
+		node, err := parseHTMLFragment(fragment)
+		if err != nil {
+			L.RaiseError("dom.New parse failed: %v", err)
+			return 0
+		}
+		L.Push(rt.newDOMValue(node))
+		return 1
+	}))
+	rt.L.SetField(tbl, "Title", lua.LString(domDocumentTitle(wrapper.root())))
 	rt.L.SetMetatable(tbl, meta)
 	return tbl
 }
@@ -758,6 +899,24 @@ func (rt *hdoujinRuntime) newCollection(values []lua.LValue) *lua.LTable {
 
 	index := 0
 	meta := rt.L.NewTable()
+	rt.L.SetField(meta, "__index", rt.L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckAny(2)
+		switch typed := key.(type) {
+		case lua.LNumber:
+			index := int(typed)
+			if index >= 0 {
+				L.Push(tbl.RawGetInt(index + 1))
+				return 1
+			}
+		case lua.LString:
+			if value := tbl.RawGetString(typed.String()); value != lua.LNil {
+				L.Push(value)
+				return 1
+			}
+		}
+		L.Push(lua.LNil)
+		return 1
+	}))
 	rt.L.SetField(meta, "__call", rt.L.NewFunction(func(L *lua.LState) int {
 		if index >= tbl.Len() {
 			return 0
@@ -811,6 +970,9 @@ func (rt *hdoujinRuntime) pageValueString(value lua.LValue) string {
 			}
 			return firstString(node.selectValues("."))
 		}
+		if url := strings.TrimSpace(firstNonEmpty(v.RawGetString("Url").String(), v.RawGetString("URL").String())); url != "" {
+			return url
+		}
 	}
 	return strings.TrimSpace(value.String())
 }
@@ -842,6 +1004,12 @@ func (rt *hdoujinRuntime) collectChapterValues(values ...lua.LValue) []hdoujinCh
 				if strings.TrimSpace(url) != "" {
 					out = append(out, hdoujinChapter{URL: url, Title: title})
 				}
+				continue
+			}
+			url := strings.TrimSpace(firstNonEmpty(v.RawGetString("Url").String(), v.RawGetString("URL").String()))
+			title := strings.TrimSpace(firstNonEmpty(v.RawGetString("Title").String(), v.RawGetString("Name").String()))
+			if url != "" {
+				out = append(out, hdoujinChapter{URL: url, Title: title})
 			}
 		}
 	}
@@ -851,12 +1019,17 @@ func (rt *hdoujinRuntime) collectChapterValues(values ...lua.LValue) []hdoujinCh
 func (rt *hdoujinRuntime) chapterFromArgs(L *lua.LState, self lua.LValue) (hdoujinChapter, bool) {
 	first := luaValueArgMaybeSelf(L, self, 1)
 	second := luaValueArgMaybeSelf(L, self, 2)
-	if node := domNodeFromValue(first); node != nil {
-		chapters := rt.collectChapterValues(first)
-		if len(chapters) > 0 {
+	if table, ok := first.(*lua.LTable); ok {
+		if node := domNodeFromValue(table); node != nil {
+			chapters := rt.collectChapterValues(first)
+			if len(chapters) > 0 {
+				return chapters[0], true
+			}
+			return hdoujinChapter{}, false
+		}
+		if chapters := rt.collectChapterValues(first); len(chapters) > 0 {
 			return chapters[0], true
 		}
-		return hdoujinChapter{}, false
 	}
 	url := strings.TrimSpace(rt.pageValueString(first))
 	if url == "" {
@@ -888,6 +1061,13 @@ func (node *hdoujinDOMNode) selectValues(expr string) []string {
 	}
 
 	trimmedExpr := strings.TrimSpace(expr)
+	if strings.HasPrefix(trimmedExpr, "@") {
+		attr := strings.TrimPrefix(trimmedExpr, "@")
+		if value := strings.TrimSpace(htmlstd.UnescapeString(htmlquery.SelectAttr(root, attr))); value != "" {
+			return []string{value}
+		}
+		return nil
+	}
 	if match := hdoujinAttrSuffixRe.FindStringSubmatch(trimmedExpr); len(match) == 3 {
 		baseExpr := strings.TrimSpace(match[1])
 		attr := match[2]
@@ -954,14 +1134,21 @@ func (rt *hdoujinRuntime) loadURL(ctx context.Context, rawURL string, headers *l
 		return fmt.Errorf("hdoujin status: %d", resp.StatusCode)
 	}
 
-	doc, err := htmlquery.Parse(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("hdoujin read body: %w", err)
+	}
+
+	doc, err := htmlquery.Parse(strings.NewReader(string(body)))
 	if err != nil {
 		return fmt.Errorf("hdoujin parse html: %w", err)
 	}
 
 	rt.currentURL = target.String()
+	rt.currentBody = string(body)
 	rt.currentDoc = doc
 	rt.L.SetGlobal("url", lua.LString(rt.currentURL))
+	rt.L.SetGlobal("doc", lua.LString(rt.currentBody))
 	rt.L.SetGlobal("dom", rt.newDOMValue(nil))
 	if pageTbl, ok := rt.L.GetGlobal("page").(*lua.LTable); ok {
 		rt.L.SetField(pageTbl, "Url", lua.LString(rt.currentURL))
@@ -1039,7 +1226,8 @@ func (rt *hdoujinRuntime) infoStrings(key string) []string {
 
 func (rt *hdoujinRuntime) tableStrings(tbl *lua.LTable) []string {
 	out := make([]string, 0, tbl.Len())
-	tbl.ForEach(func(_ lua.LValue, value lua.LValue) {
+	for idx := 1; idx <= tbl.Len(); idx++ {
+		value := tbl.RawGetInt(idx)
 		text := strings.TrimSpace(value.String())
 		if table, ok := value.(*lua.LTable); ok {
 			if node := domNodeFromValue(table); node != nil {
@@ -1053,7 +1241,7 @@ func (rt *hdoujinRuntime) tableStrings(tbl *lua.LTable) []string {
 		if text != "" {
 			out = append(out, text)
 		}
-	})
+	}
 	return compactStrings(out)
 }
 
@@ -1129,6 +1317,26 @@ func luaCollectionValues(value lua.LValue) []lua.LValue {
 	}
 }
 
+func luaValueAsBool(value lua.LValue) bool {
+	switch v := value.(type) {
+	case lua.LBool:
+		return bool(v)
+	case lua.LNumber:
+		return float64(v) != 0
+	case lua.LString:
+		switch strings.ToLower(strings.TrimSpace(v.String())) {
+		case "", "0", "false", "no", "off", "nil", "null":
+			return false
+		default:
+			return true
+		}
+	case *lua.LNilType:
+		return false
+	default:
+		return strings.TrimSpace(value.String()) != ""
+	}
+}
+
 func domNodeFromValue(value lua.LValue) *hdoujinDOMNode {
 	tbl, ok := value.(*lua.LTable)
 	if !ok {
@@ -1149,6 +1357,17 @@ func firstString(values []string) string {
 		}
 	}
 	return ""
+}
+
+func domDocumentTitle(root *html.Node) string {
+	if root == nil {
+		return ""
+	}
+	nodes, err := htmlquery.QueryAll(root, "//title")
+	if err != nil || len(nodes) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(htmlstd.UnescapeString(htmlquery.InnerText(nodes[0])))
 }
 
 func looksLikeDirectMediaURL(raw string) bool {
