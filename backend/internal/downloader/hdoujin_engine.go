@@ -541,6 +541,27 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 		rt.syncPagesTable()
 		return 0
 	}))
+	L.SetField(pagesTbl, "First", L.NewFunction(func(L *lua.LState) int {
+		if len(rt.pages) == 0 {
+			L.Push(lua.LString(""))
+		} else {
+			L.Push(lua.LString(rt.pages[0]))
+		}
+		return 1
+	}))
+	L.SetField(pagesTbl, "Last", L.NewFunction(func(L *lua.LState) int {
+		if len(rt.pages) == 0 {
+			L.Push(lua.LString(""))
+		} else {
+			L.Push(lua.LString(rt.pages[len(rt.pages)-1]))
+		}
+		return 1
+	}))
+	L.SetField(pagesTbl, "Clear", L.NewFunction(func(L *lua.LState) int {
+		rt.pages = rt.pages[:0]
+		rt.syncPagesTable()
+		return 0
+	}))
 	L.SetField(pagesTbl, "Headers", L.NewTable())
 	L.SetField(pagesTbl, "Referer", lua.LString(""))
 	rt.pagesTbl = pagesTbl
@@ -571,6 +592,47 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 	}))
 	L.SetField(chaptersTbl, "Sort", L.NewFunction(func(L *lua.LState) int {
 		sortChaptersNaturally(rt.chapters)
+		rt.syncChaptersTable()
+		return 0
+	}))
+	L.SetField(chaptersTbl, "First", L.NewFunction(func(L *lua.LState) int {
+		if len(rt.chapters) == 0 {
+			L.Push(lua.LNil)
+		} else {
+			entry := rt.L.NewTable()
+			rt.L.SetField(entry, "Url", lua.LString(rt.chapters[0].URL))
+			rt.L.SetField(entry, "Title", lua.LString(rt.chapters[0].Title))
+			L.Push(entry)
+		}
+		return 1
+	}))
+	L.SetField(chaptersTbl, "Last", L.NewFunction(func(L *lua.LState) int {
+		if len(rt.chapters) == 0 {
+			L.Push(lua.LNil)
+		} else {
+			last := rt.chapters[len(rt.chapters)-1]
+			entry := rt.L.NewTable()
+			rt.L.SetField(entry, "Url", lua.LString(last.URL))
+			rt.L.SetField(entry, "Title", lua.LString(last.Title))
+			L.Push(entry)
+		}
+		return 1
+	}))
+	L.SetField(chaptersTbl, "Clear", L.NewFunction(func(L *lua.LState) int {
+		rt.chapters = rt.chapters[:0]
+		rt.syncChaptersTable()
+		return 0
+	}))
+	L.SetField(chaptersTbl, "FilterDuplicates", L.NewFunction(func(L *lua.LState) int {
+		seen := make(map[string]bool, len(rt.chapters))
+		filtered := rt.chapters[:0]
+		for _, ch := range rt.chapters {
+			if !seen[ch.URL] {
+				seen[ch.URL] = true
+				filtered = append(filtered, ch)
+			}
+		}
+		rt.chapters = filtered
 		rt.syncChaptersTable()
 		return 0
 	}))
@@ -1228,6 +1290,9 @@ func (rt *hdoujinRuntime) tableStrings(tbl *lua.LTable) []string {
 	out := make([]string, 0, tbl.Len())
 	for idx := 1; idx <= tbl.Len(); idx++ {
 		value := tbl.RawGetInt(idx)
+		if value.Type() == lua.LTFunction {
+			continue
+		}
 		text := strings.TrimSpace(value.String())
 		if table, ok := value.(*lua.LTable); ok {
 			if node := domNodeFromValue(table); node != nil {
@@ -1307,12 +1372,19 @@ func luaCollectionValues(value lua.LValue) []lua.LValue {
 	case *lua.LTable:
 		out := make([]lua.LValue, 0, v.Len())
 		for i := 1; i <= v.Len(); i++ {
-			out = append(out, v.RawGetInt(i))
+			entry := v.RawGetInt(i)
+			if entry.Type() == lua.LTFunction {
+				continue
+			}
+			out = append(out, entry)
 		}
 		return out
 	case *lua.LNilType:
 		return nil
 	default:
+		if value.Type() == lua.LTFunction {
+			return nil
+		}
 		return []lua.LValue{value}
 	}
 }
