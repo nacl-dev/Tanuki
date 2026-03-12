@@ -3,6 +3,7 @@ package downloader
 import (
 	"archive/zip"
 	"context"
+	"encoding/base64"
 	"fmt"
 	htmlstd "html"
 	"io"
@@ -691,6 +692,98 @@ func (rt *hdoujinRuntime) installBaseRuntime() {
 		L.RaiseError("encrypted HDoujin modules are not supported in the first compatibility pass")
 		return 0
 	}))
+
+	// Fail(message) – abort the current operation with an error (~30 modules).
+	L.SetGlobal("Fail", L.NewFunction(func(L *lua.LState) int {
+		msg := L.OptString(1, "module called Fail()")
+		L.RaiseError("%s", msg)
+		return 0
+	}))
+
+	// SetParameter(url, key, value) – set or replace a URL query parameter (~15 modules).
+	L.SetGlobal("SetParameter", L.NewFunction(func(L *lua.LState) int {
+		raw := L.CheckString(1)
+		key := L.CheckString(2)
+		value := L.CheckString(3)
+		u, err := urlpkg.Parse(raw)
+		if err != nil {
+			L.Push(lua.LString(raw))
+			return 1
+		}
+		q := u.Query()
+		q.Set(key, value)
+		u.RawQuery = q.Encode()
+		L.Push(lua.LString(u.String()))
+		return 1
+	}))
+
+	// DecodeBase64(str) – decode a base64-encoded string (~10 modules).
+	L.SetGlobal("DecodeBase64", L.NewFunction(func(L *lua.LState) int {
+		encoded := L.CheckString(1)
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			decoded, err = base64.RawStdEncoding.DecodeString(encoded)
+			if err != nil {
+				L.Push(lua.LString(""))
+				return 1
+			}
+		}
+		L.Push(lua.LString(string(decoded)))
+		return 1
+	}))
+
+	// StripParameters(url) – remove all query parameters from a URL (~12 modules).
+	L.SetGlobal("StripParameters", L.NewFunction(func(L *lua.LState) int {
+		raw := L.CheckString(1)
+		u, err := urlpkg.Parse(raw)
+		if err != nil {
+			L.Push(lua.LString(raw))
+			return 1
+		}
+		u.RawQuery = ""
+		u.Fragment = ""
+		L.Push(lua.LString(u.String()))
+		return 1
+	}))
+
+	// Paginator.New(baseUrl, startPage, step) – pagination helper (~8 modules).
+	paginatorFactory := L.NewTable()
+	L.SetField(paginatorFactory, "New", L.NewFunction(func(L *lua.LState) int {
+		baseURL := L.CheckString(1)
+		startPage := L.OptInt(2, 1)
+		step := L.OptInt(3, 1)
+
+		paginator := L.NewTable()
+		currentPage := startPage
+		L.SetField(paginator, "Url", lua.LString(baseURL))
+		L.SetField(paginator, "Page", lua.LNumber(currentPage))
+
+		L.SetField(paginator, "Next", L.NewFunction(func(L *lua.LState) int {
+			currentPage += step
+			L.SetField(paginator, "Page", lua.LNumber(currentPage))
+			return 0
+		}))
+		L.SetField(paginator, "HasNext", L.NewFunction(func(L *lua.LState) int {
+			L.Push(lua.LTrue)
+			return 1
+		}))
+		L.SetField(paginator, "GetUrl", L.NewFunction(func(L *lua.LState) int {
+			u, err := urlpkg.Parse(baseURL)
+			if err != nil {
+				L.Push(lua.LString(baseURL))
+				return 1
+			}
+			q := u.Query()
+			q.Set("page", fmt.Sprintf("%d", currentPage))
+			u.RawQuery = q.Encode()
+			L.Push(lua.LString(u.String()))
+			return 1
+		}))
+
+		L.Push(paginator)
+		return 1
+	}))
+	L.SetGlobal("Paginator", paginatorFactory)
 }
 
 func (rt *hdoujinRuntime) extendStringLibrary() {
@@ -1203,6 +1296,8 @@ func (rt *hdoujinRuntime) infoString(key string) string {
 	case *lua.LTable:
 		values := rt.tableStrings(v)
 		return strings.Join(values, ", ")
+	case *lua.LFunction:
+		return ""
 	default:
 		return strings.TrimSpace(value.String())
 	}
@@ -1228,6 +1323,9 @@ func (rt *hdoujinRuntime) tableStrings(tbl *lua.LTable) []string {
 	out := make([]string, 0, tbl.Len())
 	for idx := 1; idx <= tbl.Len(); idx++ {
 		value := tbl.RawGetInt(idx)
+		if _, isFunc := value.(*lua.LFunction); isFunc {
+			continue
+		}
 		text := strings.TrimSpace(value.String())
 		if table, ok := value.(*lua.LTable); ok {
 			if node := domNodeFromValue(table); node != nil {

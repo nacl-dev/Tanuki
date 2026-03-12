@@ -110,12 +110,18 @@ func (s *Scanner) Run(ctx context.Context) error {
 			return nil
 		}
 		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".tanuki-job-") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
+		if strings.HasSuffix(d.Name(), ".part") {
+			return nil
+		}
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 		mediaType, ok := mediaExtensions[ext]
 		if !ok {

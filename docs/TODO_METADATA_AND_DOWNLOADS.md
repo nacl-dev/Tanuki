@@ -93,4 +93,4 @@
 - [x] Closed the first useful non-login HTTP helper batch for live modules: http.Get, http.Post, http.GetResponse, http.PostResponse, response cookies and body, and global.SetCookies
 - [x] Closed the next small DOM helper batch for live modules: dom.Title, Dom.New, and dom.New compatibility on DOM instances
 - [x] Confirmed chapter-list helpers now work on real sites that depend on chapters.AddRange and chapters.Reverse
-- [ ] Follow up on two live-run findings: collection-backed tag lists must ignore helper methods when converting tags, and large story hosts should be sanity-checked with smaller fixtures during future validation
+- [x] Follow up on two live-run findings: collection-backed tag lists now skip `*lua.LFunction` values when converting to Go slices, and large story hosts now have lightweight 3–5 page test fixtures for routine validation
